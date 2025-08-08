@@ -102,10 +102,10 @@ $ProfileRepoPath = [System.IO.Path]::GetDirectoryName($ProfileRepoFullPath)
 . ([System.IO.Path]::Combine($ProfileRepoPath, "functions/file-functions.ps1"))
 . ([System.IO.Path]::Combine($ProfileRepoPath, "functions/git-functions.ps1"))
 . ([System.IO.Path]::Combine($ProfileRepoPath, "functions/network-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/setup-autocompletions.ps1"))
-Initialize-Completion
 . ([System.IO.Path]::Combine($ProfileRepoPath, "functions/import-modules.ps1"))
 Import-RequiredModules
+. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/setup-autocompletions.ps1"))
+Initialize-Completion
 
 Write-Host "Initial utility functions and paths resolved at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkGray
 
@@ -123,207 +123,176 @@ if (Test-IsInteractive -eq $true) {
 
     Write-Host "Interactive session detected; deferred loading setup begins at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkGray
 
-    # Create a queue of tasks to run asynchronously
-    [System.Collections.Queue]$__initQueue = @(
-        {
-            Write-Host "Starting Oh-My-Posh and PSReadLine init at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-            # Wrap in New-Module to ensure functions/settings are global
-            New-Module -Name 'PoshReadlineInit' -ScriptBlock {
-                Set-PSReadLineOption -PromptText '' # Needs to be global affecting the main console
+    # --- Oh-My-Posh and PSReadLine ---
+    Write-Host "Starting Oh-My-Posh and PSReadLine init at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+    New-Module -Name 'PoshReadlineInit' -ScriptBlock {
+        Set-PSReadLineOption -PromptText ''
 
-                function Initialize-Theme {
-                    oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Invoke-Expression
-                    $Env:POSH_GIT_ENABLED = $true
-                }
-                Initialize-Theme
-
-                function Initialize-PSReadLine {
-                    $psReadLineOptions = @{
-                        EditMode                      = 'Windows'
-                        HistoryNoDuplicates           = $true
-                        HistorySearchCursorMovesToEnd = $true
-                        Colors                        = @{
-                            Command   = '#87CEEB'
-                            Parameter = '#98FB98'
-                            Operator  = '#FFB6C1'
-                            Variable  = '#DDA0DD'
-                            String    = '#FFDAB9'
-                            Number    = '#B0E0E6'
-                            Type      = '#F0E68C'
-                            Comment   = '#D3D3D3'
-                            Keyword   = '#8367c7'
-                            Error     = '#FF6347'
-                        }
-                        PredictionSource              = 'History'
-                        PredictionViewStyle           = 'ListView'
-                        BellStyle                     = 'None'
-                    }
-                    Set-PSReadLineOption @psReadLineOptions
-
-                    $keyHandlers = @(
-                        @{ Key = 'UpArrow'; Function = 'HistorySearchBackward' },
-                        @{ Key = 'DownArrow'; Function = 'HistorySearchForward' },
-                        @{ Key = 'Tab'; Function = 'MenuComplete' },
-                        @{ Chord = 'Ctrl+d'; Function = 'DeleteChar' },
-                        @{ Chord = 'Ctrl+w'; Function = 'BackwardDeleteWord' },
-                        @{ Chord = 'Alt+d'; Function = 'DeleteWord' },
-                        @{ Chord = 'Ctrl+LeftArrow'; Function = 'BackwardWord' },
-                        @{ Chord = 'Ctrl+RightArrow'; Function = 'ForwardWord' },
-                        @{ Chord = 'Ctrl+z'; Function = 'Undo' },
-                        @{ Chord = 'Ctrl+y'; Function = 'Redo' },
-                        @{ Key = 'Ctrl+l'; Function = 'ClearScreen' },
-                        @{ Chord = 'Enter'; Function = 'ValidateAndAcceptLine' },
-                        @{ Chord = 'Ctrl+Enter'; Function = 'AcceptSuggestion' },
-                        @{ Chord = 'Alt+v'; Function = 'SwitchPredictionView' }
-                    )
-
-                    foreach ($handler in $keyHandlers) {
-                        if ($handler.ContainsKey('Key')) {
-                            Set-PSReadLineKeyHandler -Key $handler.Key -Function $handler.Function
-                        }
-                        elseif ($handler.ContainsKey('Chord')) {
-                            Set-PSReadLineKeyHandler -Chord $handler.Chord -Function $handler.Function
-                        }
-                    }
-
-                    Set-PSReadLineOption -AddToHistoryHandler {
-                        param($line)
-                        $sensitivePatterns = @('password', 'secret', 'token', 'apikey', 'connectionstring')
-                        return -not ($sensitivePatterns | Where-Object { $line -match $_ })
-                    }
-
-                    Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-                    Set-PSReadLineOption -MaximumHistoryCount 10000
-                    Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
-                }
-                Initialize-PSReadLine
-                # Export functions/aliases/variables if defined here for global access
-                # Export-ModuleMember -Function Initialize-Theme, Initialize-PSReadLine # Not necessary as they are called internally
-            } | Import-Module -Global # Import this temporary module globally
-            Write-Host "Oh-My-Posh and PSReadLine init completed at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-        },
-        {
-            Write-Host "Starting EDITOR setup at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-            New-Module -Name 'EditorSetupCustom' -ScriptBlock {
-                # Test-CommandExists needed here again
-                function Test-CommandExists {
-                    param($command)
-                    try { $null -ne (Get-Command $command -ErrorAction SilentlyContinue) }
-                    catch { Write-Warning "Error checking for command '$command': $($_.Exception.Message)"; return $false }
-                }
-
-                $EDITOR_FOUND = $false
-                $EDITOR = foreach ($cmd in 'nvim', 'pvim', 'vim', 'vi', 'code', 'notepad++', 'sublime_text') {
-                    if (Test-CommandExists $cmd) {
-                        $cmd;
-                        $EDITOR_FOUND = $true;
-                        break
-                    }
-                }
-                if (-not $EDITOR_FOUND) {
-                    $EDITOR = 'notepad'
-                }
-                Set-Alias -Name vim -Value $EDITOR
-                Export-ModuleMember -Alias vim # Export the alias
-            } | Import-Module -Global
-            Write-Host "EDITOR setup completed at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-        },
-        {
-            Write-Host "Starting dotnet argument completer setup at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-            New-Module -Name 'DotnetCompleterCustom' -ScriptBlock {
-                $dotnetCompleter = {
-                    param($wordToComplete, $commandAst, $cursorPosition)
-                    dotnet complete --position $cursorPosition $commandAst.ToString() |
-                    ForEach-Object {
-                        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                    }
-                }
-                Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $dotnetCompleter
-            } | Import-Module -Global
-            Write-Host "dotnet argument completer setup completed at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-        },
-        {
-            Write-Host "Starting az argument completer setup at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-            New-Module -Name 'AzCompleterCustom' -ScriptBlock {
-                Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
-                    param($commandName, $wordToComplete, $cursorPosition)
-                    $completion_file = [System.IO.Path]::GetTempFileName()
-                    $env:ARGCOMPLETE_USE_TEMPFILES = 1
-                    $env:_ARGCOMPLETE_STDOUT_FILENAME = $completion_file
-                    $env:COMP_LINE = $wordToComplete
-                    $env:COMP_POINT = $cursorPosition
-                    $env:_ARGCOMPLETE = 1
-                    $env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
-                    $env:_ARGCOMPLETE_IFS = "`n"
-                    $env:_ARGCOMPLETE_SHELL = 'powershell'
-                    az 2>&1 | Out-Null
-                    [System.IO.File]::ReadAllLines($completion_file) | Sort-Object | ForEach-Object {
-                        [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_)
-                    }
-                    [System.IO.File]::Delete($completion_file)
-                    Remove-Item Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL
-                }
-            } | Import-Module -Global
-            Write-Host "az argument completer setup completed at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-        },
-        {
-            Write-Host "Starting zoxide and git aliases setup at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
-            New-Module -Name 'ZoxideGitCompleterCustom' -ScriptBlock {
-                Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force
-                Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force
-
-                $gitAliases = git config --list | ForEach-Object {
-                    if ($_ -match '(?<=alias\.).*?(?==)') {
-                        $Matches[0]
-                    }
-                }
-                $scriptblock = {
-                    param($wordToComplete, $commandAst, $cursorPosition)
-                    $customCompletions = @{
-                        'git' = $gitAliases
-                    }
-
-                    $command = $commandAst.CommandElements[0].Value
-                    if ($customCompletions.ContainsKey($command)) {
-                        $customCompletions[$command] | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                        }
-                    }
-                }
-                Register-ArgumentCompleter -Native -CommandName git -ScriptBlock $scriptblock
-                Export-ModuleMember -Alias z, zi # Export aliases
-            } | Import-Module -Global
-            Write-Host "zoxide and git aliases setup completed at $($profileStopwatch.ElapsedMilliseconds)ms (deferred)" -ForegroundColor DarkCyan
+        function Initialize-Theme {
+            oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Invoke-Expression
+            $Env:POSH_GIT_ENABLED = $true
         }
-    )
+        Initialize-Theme
 
-    # Register our idle callback; use `-SupportEvent` to hide the registration from the user
-    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -SupportEvent -Action {
-        # Check if the stopwatch is still running; this allows it to be used across events.
-        # This action also runs in its own scope, so $profileStopwatch and $__initQueue need to be global or accessible via $using:
-        $currentStopwatch = $Global:profileStopwatch # Access the global stopwatch
+        function Initialize-PSReadLine {
+            $psReadLineOptions = @{
+                EditMode                      = 'Windows'
+                HistoryNoDuplicates           = $true
+                HistorySearchCursorMovesToEnd = $true
+                Colors                        = @{
+                    Command   = '#87CEEB'
+                    Parameter = '#98FB98'
+                    Operator  = '#FFB6C1'
+                    Variable  = '#DDA0DD'
+                    String    = '#FFDAB9'
+                    Number    = '#B0E0E6'
+                    Type      = '#F0E68C'
+                    Comment   = '#D3D3D3'
+                    Keyword   = '#8367c7'
+                    Error     = '#FF6347'
+                }
+                PredictionSource              = 'History'
+                PredictionViewStyle           = 'ListView'
+                BellStyle                     = 'None'
+            }
+            Set-PSReadLineOption @psReadLineOptions
 
-        if ($Global:__initQueue.Count -gt 0) {
-            Write-Verbose "Dequeuing next deferred task. Remaining tasks: $($Global:__initQueue.Count)"
-            & $Global:__initQueue.Dequeue() # Execute the next script block in the queue
+            $keyHandlers = @(
+                @{ Key = 'UpArrow'; Function = 'HistorySearchBackward' },
+                @{ Key = 'DownArrow'; Function = 'HistorySearchForward' },
+                @{ Key = 'Tab'; Function = 'MenuComplete' },
+                @{ Chord = 'Ctrl+d'; Function = 'DeleteChar' },
+                @{ Chord = 'Ctrl+w'; Function = 'BackwardDeleteWord' },
+                @{ Chord = 'Alt+d'; Function = 'DeleteWord' },
+                @{ Chord = 'Ctrl+LeftArrow'; Function = 'BackwardWord' },
+                @{ Chord = 'Ctrl+RightArrow'; Function = 'ForwardWord' },
+                @{ Chord = 'Ctrl+z'; Function = 'Undo' },
+                @{ Chord = 'Ctrl+y'; Function = 'Redo' },
+                @{ Key = 'Ctrl+l'; Function = 'ClearScreen' },
+                @{ Chord = 'Enter'; Function = 'ValidateAndAcceptLine' },
+                @{ Chord = 'Ctrl+Enter'; Function = 'AcceptSuggestion' },
+                @{ Chord = 'Alt+v'; Function = 'SwitchPredictionView' }
+            )
+
+            foreach ($handler in $keyHandlers) {
+                if ($handler.ContainsKey('Key')) {
+                    Set-PSReadLineKeyHandler -Key $handler.Key -Function $handler.Function
+                }
+                elseif ($handler.ContainsKey('Chord')) {
+                    Set-PSReadLineKeyHandler -Chord $handler.Chord -Function $handler.Function
+                }
+            }
+
+            Set-PSReadLineOption -AddToHistoryHandler {
+                param($line)
+                $sensitivePatterns = @('password', 'secret', 'token', 'apikey', 'connectionstring')
+                return -not ($sensitivePatterns | Where-Object { $line -match $_ })
+            }
+
+            Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+            Set-PSReadLineOption -MaximumHistoryCount 10000
+            Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
         }
-        else {
-            # All tasks completed, unregister event and clean up
-            # NOTE: Use `-Force` when unregistering because we used `-SupportEvent` when registering
-            Unregister-Event -SubscriptionId $EventSubscriber.SubscriptionId -Force
+        Initialize-PSReadLine
+    } | Import-Module -Global
+    Write-Host "Oh-My-Posh and PSReadLine init completed at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
 
-            # Remove our queue variable to avoid polluting the environment
-            Remove-Variable -Name '__initQueue' -Scope Global -Force
-
-            # Re-render the prompt so we get pretty colors ASAP!
-            [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
-
-            # Stop the stopwatch and log final time only once all tasks are complete
-            $currentStopwatch.Stop()
-            Write-Host "Profile fully loaded and interactive prompt available at $($currentStopwatch.ElapsedMilliseconds)ms" -ForegroundColor Green
+    # --- EDITOR setup ---
+    Write-Host "Starting EDITOR setup at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+    New-Module -Name 'EditorSetupCustom' -ScriptBlock {
+        function Test-CommandExists {
+            param($command)
+            try { $null -ne (Get-Command $command -ErrorAction SilentlyContinue) }
+            catch { Write-Warning "Error checking for command '$command': $($_.Exception.Message)"; return $false }
         }
-    }
-} # End of if (Test-IsInteractive -eq $true)
+
+        $EDITOR_FOUND = $false
+        $EDITOR = foreach ($cmd in 'nvim', 'pvim', 'vim', 'vi', 'code', 'notepad++', 'sublime_text') {
+            if (Test-CommandExists $cmd) {
+                $cmd;
+                $EDITOR_FOUND = $true;
+                break
+            }
+        }
+        if (-not $EDITOR_FOUND) {
+            $EDITOR = 'notepad'
+        }
+        Set-Alias -Name vim -Value $EDITOR
+        Export-ModuleMember -Alias vim
+    } | Import-Module -Global
+    Write-Host "EDITOR setup completed at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+
+    # --- dotnet argument completer ---
+    Write-Host "Starting dotnet argument completer setup at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+    New-Module -Name 'DotnetCompleterCustom' -ScriptBlock {
+        $dotnetCompleter = {
+            param($wordToComplete, $commandAst, $cursorPosition)
+            dotnet complete --position $cursorPosition $commandAst.ToString() |
+            ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        }
+        Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $dotnetCompleter
+    } | Import-Module -Global
+    Write-Host "dotnet argument completer setup completed at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+
+    # --- az argument completer ---
+    Write-Host "Starting az argument completer setup at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+    New-Module -Name 'AzCompleterCustom' -ScriptBlock {
+        Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
+            param($commandName, $wordToComplete, $cursorPosition)
+            $completion_file = [System.IO.Path]::GetTempFileName()
+            $env:ARGCOMPLETE_USE_TEMPFILES = 1
+            $env:_ARGCOMPLETE_STDOUT_FILENAME = $completion_file
+            $env:COMP_LINE = $wordToComplete
+            $env:COMP_POINT = $cursorPosition
+            $env:_ARGCOMPLETE = 1
+            $env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
+            $env:_ARGCOMPLETE_IFS = "`n"
+            $env:_ARGCOMPLETE_SHELL = 'powershell'
+            az 2>&1 | Out-Null
+            [System.IO.File]::ReadAllLines($completion_file) | Sort-Object | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_)
+            }
+            [System.IO.File]::Delete($completion_file)
+            Remove-Item Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL
+        }
+    } | Import-Module -Global
+    Write-Host "az argument completer setup completed at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+
+    # --- zoxide and git aliases ---
+    Write-Host "Starting zoxide and git aliases setup at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+    New-Module -Name 'ZoxideGitCompleterCustom' -ScriptBlock {
+        Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force
+        Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force
+
+        $gitAliases = git config --list | ForEach-Object {
+            if ($_ -match '(?<=alias\.).*?(?==)') {
+                $Matches[0]
+            }
+        }
+        $scriptblock = {
+            param($wordToComplete, $commandAst, $cursorPosition)
+            $customCompletions = @{
+                'git' = $gitAliases
+            }
+
+            $command = $commandAst.CommandElements[0].Value
+            if ($customCompletions.ContainsKey($command)) {
+                $customCompletions[$command] | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            }
+        }
+        Register-ArgumentCompleter -Native -CommandName git -ScriptBlock $scriptblock
+        Export-ModuleMember -Alias z, zi
+    } | Import-Module -Global
+    Write-Host "zoxide and git aliases setup completed at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+
+    # Stop the stopwatch and log final time
+    $profileStopwatch.Stop()
+    Write-Host "Profile fully loaded and interactive prompt available at $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor Green
+}
 
 # --- Always available utility functions / aliases (fast and core to profile management) ---
 # These are kept outside the deferred block because they are fundamental profile management tools
