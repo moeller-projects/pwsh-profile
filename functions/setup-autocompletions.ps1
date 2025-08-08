@@ -16,5 +16,10 @@ function Initialize-Completion {
         Write-Verbose "Initializing zoxide completions..."
         zoxide init --cmd cd powershell | Out-String | Invoke-Expression
     }
+
+    if (Test-CommandExists mise) {
+        Write-Verbose "Initializing mise completions..."
+        mise activate pwsh | Out-String | Invoke-Expression
+    }
     Write-Verbose "All external completions initialized."
 }
