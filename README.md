@@ -44,3 +44,8 @@ Dependencies (optional but recommended)
 ## Performance
 - The profile uses true deferred init via `PowerShell.OnIdle` to keep first prompt fast.
 - Measure load time: `pwsh -File ./test-loading-time.ps1 -Iterations 20`.
+- Env toggles:
+  - `PWSH_PROMPT=plain|posh|starship` to choose prompt engine (default: posh if available).
+  - `PWSH_PREDICTION=plugin` to enable PSReadLine HistoryAndPlugin (default: history only).
+  - `PWSH_PROFILE_COMPLETIONS=0` to skip external completions init (volta, pixi, starship, zoxide, mise).
+  - `PWSH_PROFILE_IMPORT_OPTIONAL=1` to import optional modules (Terminal-Icons, PSFzf).
