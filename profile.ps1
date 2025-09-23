@@ -65,25 +65,56 @@ if ([string]::IsNullOrEmpty($ProfileRepoFullPath)) {
     return
 }
 $ProfileRepoPath = [System.IO.Path]::GetDirectoryName($ProfileRepoFullPath)
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/ai-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/azure-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/kubernetes-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/dev-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/file-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/git-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/network-functions.ps1"))
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/import-modules.ps1"))
-Import-RequiredModules
-. ([System.IO.Path]::Combine($ProfileRepoPath, "functions/setup-autocompletions.ps1"))
-Initialize-Completion
+# Add module path for autoload/import
+# Important: PSModulePath entries should point to a directory that CONTAINS module folders/files,
+# not the module folder itself. Our module lives under "$ProfileRepoPath/PwshProfile",
+# so we add the repo root to PSModulePath.
+$modulesRoot = $ProfileRepoPath
+if ([System.IO.Directory]::Exists($modulesRoot) -and ($env:PSModulePath -notlike "*${modulesRoot}*")) {
+    $env:PSModulePath = "$modulesRoot;" + $env:PSModulePath
+}
+Write-Verbose "Module path ensured: $modulesRoot"
 
 Write-Verbose "Initial utility functions and paths resolved at $($profileStopwatch.ElapsedMilliseconds)ms"
 
 # --- DEFERRED INITIALIZATION USING REGISTER-ENGINEEVENT (OnIdle) ---
 
 if (Test-IsInteractive -eq $true) {
-    # Temporary prompt to indicate deferred initialization
-    function prompt { "[loading]: PS $($ExecutionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
+    # Try to initialize prompt theme early to ensure first-render prompt
+    $global:ProfilePromptInitializedEarly = $false
+    $global:ProfileLoadingPromptActive = $false
+    try {
+        $earlyChoice = $Env:PWSH_PROMPT
+        switch ($earlyChoice) {
+            'plain'   { }
+            'starship' {
+                if (Get-Command starship -ErrorAction SilentlyContinue) {
+                    $init = starship init powershell | Out-String
+                    & ([ScriptBlock]::Create($init))
+                    $cmd = Get-Command prompt -ErrorAction SilentlyContinue
+                    if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
+                        $global:ProfilePromptInitializedEarly = $true
+                    }
+                }
+            }
+            default {
+                if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
+                    $init = oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String
+                    & ([ScriptBlock]::Create($init))
+                    $cmd = Get-Command prompt -ErrorAction SilentlyContinue
+                    if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
+                        $global:ProfilePromptInitializedEarly = $true
+                    }
+                }
+            }
+        }
+    } catch { }
+
+    # Temporary prompt only if theme not yet available
+    if (-not $global:ProfilePromptInitializedEarly) {
+        $global:ProfileLoadingPromptActive = $true
+        function prompt { "[loading]: PS $($ExecutionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
+    }
 
     # Set initial window title
     $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
@@ -95,18 +126,37 @@ if (Test-IsInteractive -eq $true) {
     Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -Action {
         if ($script:ProfileDeferredInitDone) { return }
         $script:ProfileDeferredInitDone = $true
+        # Track theme initialization status for proof/debug
+        $script:ProfileThemeStatus = 'unknown'
         try {
-            # Oh-My-Posh and PSReadLine
-            New-Module -Name 'PoshReadlineInit' -ScriptBlock {
+            # Single module for all deferred initialization
+            New-Module -Name 'ProfileDeferredInitModule' -ScriptBlock {
+                # Import our functions via module for autoload
+                try { Import-Module PwshProfile -ErrorAction Stop } catch { Write-Verbose ("PwshProfile import failed: {0}" -f $_.Exception.Message) }
+
                 Set-PSReadLineOption -PromptText ''
 
                 function Initialize-Theme {
-                    if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
-                        oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Invoke-Expression
-                        $Env:POSH_GIT_ENABLED = $true
+                    $promptChoice = $Env:PWSH_PROMPT
+                    switch ($promptChoice) {
+                        'plain'   { return }
+                        'starship' {
+                            if (Get-Command starship -ErrorAction SilentlyContinue) {
+                                starship init powershell | Out-String | Invoke-Expression
+                                return
+                            }
+                        }
+                        default {
+                            if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
+                                oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Invoke-Expression
+                                $Env:POSH_GIT_ENABLED = $true
+                                return
+                            }
+                        }
                     }
                 }
                 function Initialize-PSReadLine {
+                    $prediction = if ($Env:PWSH_PREDICTION -eq 'plugin') { 'HistoryAndPlugin' } else { 'History' }
                     $psReadLineOptions = @{
                         EditMode                      = 'Windows'
                         HistoryNoDuplicates           = $true
@@ -123,7 +173,7 @@ if (Test-IsInteractive -eq $true) {
                             Keyword   = '#8367c7'
                             Error     = '#FF6347'
                         }
-                        PredictionSource              = 'History'
+                        PredictionSource              = $prediction
                         PredictionViewStyle           = 'ListView'
                         BellStyle                     = 'None'
                     }
@@ -163,20 +213,19 @@ if (Test-IsInteractive -eq $true) {
                 }
                 Initialize-Theme
                 Initialize-PSReadLine
-            } | Import-Module -Global
-
-            # EDITOR setup
-            New-Module -Name 'EditorSetupCustom' -ScriptBlock {
-                $EDITOR = foreach ($cmd in 'nvim','pvim','vim','vi','code','notepad++','sublime_text') {
-                    if (Get-Command $cmd -ErrorAction SilentlyContinue) { $cmd; break }
+                
+                # Load optional modules (PSMenu, etc.) and completions if enabled
+                if (Get-Command Import-RequiredModules -ErrorAction SilentlyContinue) {
+                    Import-RequiredModules
                 }
+
+                # EDITOR setup
+                $EDITOR = foreach ($cmd in 'nvim','pvim','vim','vi','code','notepad++','sublime_text') { if (Get-Command $cmd -EA SilentlyContinue) { $cmd; break } }
                 if (-not $EDITOR) { $EDITOR = 'notepad' }
                 Set-Alias -Name vim -Value $EDITOR
                 Export-ModuleMember -Alias vim
-            } | Import-Module -Global
 
-            # dotnet argument completer
-            New-Module -Name 'DotnetCompleterCustom' -ScriptBlock {
+                # dotnet completer
                 if (Get-Command dotnet -ErrorAction SilentlyContinue) {
                     $dotnetCompleter = {
                         param($wordToComplete, $commandAst, $cursorPosition)
@@ -185,13 +234,12 @@ if (Test-IsInteractive -eq $true) {
                     }
                     Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $dotnetCompleter
                 }
-            } | Import-Module -Global
 
-            # az argument completer
-            New-Module -Name 'AzCompleterCustom' -ScriptBlock {
+                # az completer (guard short prefixes)
                 if (Get-Command az -ErrorAction SilentlyContinue) {
                     Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
                         param($commandName, $wordToComplete, $cursorPosition)
+                        if ([string]::IsNullOrWhiteSpace($wordToComplete) -or $wordToComplete.Length -lt 2) { return }
                         $completion_file = [System.IO.Path]::GetTempFileName()
                         try {
                             $env:ARGCOMPLETE_USE_TEMPFILES = 1
@@ -212,16 +260,18 @@ if (Test-IsInteractive -eq $true) {
                         }
                     }
                 }
-            } | Import-Module -Global
-
-            # zoxide and git alias completer
-            New-Module -Name 'ZoxideGitCompleterCustom' -ScriptBlock {
+                
+                # zoxide and git alias completer
                 if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) { Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force }
                 if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force }
                 if (Get-Command git -ErrorAction SilentlyContinue) {
                     Register-ArgumentCompleter -Native -CommandName git -ScriptBlock {
                         param($wordToComplete, $commandAst, $cursorPosition)
-                        $gitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
+                        $gitAliases = $script:GitAliases
+                        if (-not $gitAliases -or $env:GIT_COMPLETIONS_REFRESH -eq '1') {
+                            $script:GitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
+                            $gitAliases = $script:GitAliases
+                        }
                         $command = $commandAst.CommandElements[0].Value
                         if ($command -eq 'git') {
                             $gitAliases | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
@@ -230,18 +280,98 @@ if (Test-IsInteractive -eq $true) {
                         }
                     }
                 }
-                Export-ModuleMember -Alias z, zi
+
+                # External completions (volta, pixi, starship, zoxide, mise) only if enabled
+                if ($Env:PWSH_PROFILE_COMPLETIONS -ne '0') {
+                    if (Get-Command Initialize-Completion -ErrorAction SilentlyContinue) {
+                        Initialize-Completion
+                    }
+                }
             } | Import-Module -Global
 
+            # Ensure prompt theme initialization runs in GLOBAL scope, not module scope.
+            # Running inside the module can scope the 'prompt' function to the module,
+            # preventing Starship/Oh-My-Posh from taking effect in the session.
+            try {
+                if ($global:ProfilePromptInitializedEarly) {
+                    # Already initialized at first render
+                    $cmd = Get-Command prompt -ErrorAction SilentlyContinue
+                    if ($null -ne $cmd -and $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
+                        $script:ProfileThemeStatus = 'starship:early'
+                    } elseif ($null -ne $cmd -and $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
+                        $script:ProfileThemeStatus = 'oh-my-posh:early'
+                    } else {
+                        $script:ProfileThemeStatus = 'early:init-no-prompt'
+                    }
+                } else {
+                    $promptChoice = $Env:PWSH_PROMPT
+                    switch ($promptChoice) {
+                        'plain'   { $script:ProfileThemeStatus = 'plain' }
+                        'starship' {
+                            if (Get-Command starship -ErrorAction SilentlyContinue) {
+                                $init = starship init powershell | Out-String
+                                & ([ScriptBlock]::Create($init))
+                                $cmd = Get-Command prompt -ErrorAction SilentlyContinue
+                                if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
+                                    $script:ProfileThemeStatus = 'starship:ok'
+                                } else {
+                                    $script:ProfileThemeStatus = 'starship:init-no-prompt'
+                                }
+                            } else {
+                                $script:ProfileThemeStatus = 'starship:not-installed'
+                            }
+                        }
+                        default {
+                            if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
+                                $init = oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String
+                                & ([ScriptBlock]::Create($init))
+                                $Env:POSH_GIT_ENABLED = $true
+                                $cmd = Get-Command prompt -ErrorAction SilentlyContinue
+                                if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
+                                    $script:ProfileThemeStatus = 'oh-my-posh:ok'
+                                } else {
+                                    $script:ProfileThemeStatus = 'oh-my-posh:init-no-prompt'
+                                }
+                            } else {
+                                $script:ProfileThemeStatus = 'oh-my-posh:not-installed'
+                            }
+                        }
+                    }
+                }
+            } catch {
+                $script:ProfileThemeStatus = 'theme:init-error'
+                Write-Verbose ("Theme init (global scope) failed: {0}" -f $_.Exception.Message)
+            }
+
+            # EDITOR setup
+            # (additional EDITOR/completers moved inside ProfileDeferredInitModule)
+
             # Stop the stopwatch and log final time (verbose-only)
-            $ExecutionContext.SessionState.PSVariable.Get('profileStopwatch').Value.Stop()
-            Write-Verbose ("Profile fully loaded at {0}ms" -f $ExecutionContext.SessionState.PSVariable.Get('profileStopwatch').Value.ElapsedMilliseconds)
+            $sw = $ExecutionContext.SessionState.PSVariable.Get('profileStopwatch').Value
+            $sw.Stop()
+            $elapsedMs = [int]$sw.ElapsedMilliseconds
+            Write-Verbose ("Profile fully loaded at {0}ms" -f $elapsedMs)
+
+            # Update window title to indicate readiness
+            try {
+                $adminSuffix = if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { " [ADMIN]" } else { "" }
+                $Host.UI.RawUI.WindowTitle = "PowerShell {0}{1} — Ready in {2} ms" -f $PSVersionTable.PSVersion.ToString(), $adminSuffix, $elapsedMs
+            } catch { }
+
+            # Always print a concise confirmation when the profile is fully loaded
+            # Intentionally uses Write-Host for interactive UX per repo guidelines
+            Write-Host ("Profile fully loaded in {0} ms" -f $elapsedMs)
         } catch {
             Write-Verbose ("Deferred init error: {0}" -f $_.Exception.Message)
         } finally {
             Unregister-Event -SourceIdentifier PowerShell.OnIdle -ErrorAction SilentlyContinue
-            # Restore default prompt
-            Remove-Item Function:prompt -ErrorAction SilentlyContinue
+            # Restore default prompt only if we used the temporary loading prompt
+            try {
+                if ($global:ProfileLoadingPromptActive) {
+                    Remove-Item Function:prompt -ErrorAction SilentlyContinue
+                    $global:ProfileLoadingPromptActive = $false
+                }
+            } catch { }
         }
     } | Out-Null
 }
@@ -271,6 +401,9 @@ function admin {
 # goToParent, goToParent2Levels, goToHome must be defined *here* or *globally available* for these aliases to work.
 Set-Alias -Name c -Value Clear-Host
 Set-Alias -Name ls -Value Get-ChildItem
+function goParent { Set-Location .. }
+function goToParent2Levels { Set-Location ../.. }
+function goToHome { Set-Location ~ }
 Set-Alias -Name .. -Value goParent
 Set-Alias -Name ... -Value goToParent2Levels
 Set-Alias -Name ~ -Value goToHome
