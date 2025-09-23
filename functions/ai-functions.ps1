@@ -1,18 +1,34 @@
 # ai-functions.ps1
 function Configure-AI {
-    Write-Host "Configuring AI environment variables." -ForegroundColor Cyan
-    $provider = Read-Host "Enter AI Provider"
+    [CmdletBinding()]
+    param()
+    Write-Host "Configuring AI settings" -ForegroundColor Cyan
+    $provider = Read-Host "Enter AI Provider (e.g., openai)"
     $apiKeySecure = Read-Host "Enter OpenAI API Key" -AsSecureString
-    $model = Read-Host "Enter OpenAI Model"
+    $model = Read-Host "Enter OpenAI Model (e.g., gpt-4o-mini)"
 
-    # Convert the secure string to plain for env var storage (user scope)
+    # Convert secure string safely
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($apiKeySecure)
     try { $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 
+    # Prefer SecretManagement if available
+    if (Get-Command -Name Set-Secret -ErrorAction SilentlyContinue) {
+        try {
+            Set-Secret -Name OPENAI_API_KEY -Secret $apiKey -ErrorAction Stop
+            Write-Host "Stored API key in SecretManagement (name: OPENAI_API_KEY)." -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to store secret via SecretManagement: $($_.Exception.Message). Falling back to user env var."
+            [System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $apiKey, [System.EnvironmentVariableTarget]::User)
+        }
+    } else {
+        [System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $apiKey, [System.EnvironmentVariableTarget]::User)
+        Write-Host "Stored API key in user environment (OPENAI_API_KEY)." -ForegroundColor Yellow
+    }
+
     [System.Environment]::SetEnvironmentVariable('AI_PROVIDER', $provider, [System.EnvironmentVariableTarget]::User)
-    [System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $apiKey, [System.EnvironmentVariableTarget]::User)
     [System.Environment]::SetEnvironmentVariable('OPENAI_MODEL', $model, [System.EnvironmentVariableTarget]::User)
-    Write-Host "AI environment variables configured for current user." -ForegroundColor Green
+    Write-Host "AI provider/model configured for current user." -ForegroundColor Green
 }
 
 function Ask-ChatGpt {
@@ -24,7 +40,14 @@ function Ask-ChatGpt {
     )
 
     if (-not $env:OPENAI_API_KEY) {
-        Write-Error "Error: The OPENAI_API_KEY environment variable is not set."
+        # Try SecretManagement fallback
+        if (Get-Command -Name Get-Secret -ErrorAction SilentlyContinue) {
+            try { $secret = Get-Secret -Name OPENAI_API_KEY -ErrorAction Stop } catch { $secret = $null }
+            if ($secret) { $env:OPENAI_API_KEY = [string]$secret }
+        }
+    }
+    if (-not $env:OPENAI_API_KEY) {
+        Write-Error "Error: OPENAI_API_KEY not available. Use Configure-AI to set it."
         return
     }
 

@@ -1,26 +1,23 @@
 function Initialize-Completion {
-    if (-not (Get-Command -Name Test-CommandExists -ErrorAction SilentlyContinue)) {
-        function Test-CommandExists { param($command) try { $null -ne (Get-Command -Name $command -ErrorAction SilentlyContinue) } catch { $false } }
-    }
-    if (Test-CommandExists volta) {
+    if (Get-Command -Name volta -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing volta completions..."
         volta completions powershell | Out-String | Invoke-Expression
     }
-    if (Test-CommandExists pixi) {
+    if (Get-Command -Name pixi -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing pixi completions..."
         pixi completion --shell powershell | Out-String | Invoke-Expression
     }
-    if (Test-CommandExists starship) {
+    if (Get-Command -Name starship -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing starship completions..."
         starship init powershell | Out-String | Invoke-Expression
     }
 
-    if (Test-CommandExists zoxide) {
+    if (Get-Command -Name zoxide -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing zoxide completions..."
         zoxide init --cmd cd powershell | Out-String | Invoke-Expression
     }
 
-    if (Test-CommandExists mise) {
+    if (Get-Command -Name mise -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing mise completions..."
         mise activate pwsh | Out-String | Invoke-Expression
     }

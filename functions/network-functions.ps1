@@ -1,4 +1,6 @@
 function Get-PubIP {
+    [CmdletBinding()]
+    param()
     try {
         if ($PSVersionTable.PSVersion.Major -ge 6) {
             $publicIP = (Invoke-WebRequest https://ipv4.icanhazip.com -TimeoutSec 10 -ErrorAction Stop).Content.Trim()

@@ -49,7 +49,6 @@ function Login-ACR {
     param ()
 
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) { Write-Error "Azure CLI 'az' not found in PATH."; return }
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Error "Docker CLI not found in PATH."; return }
 
     Write-Verbose "Retrieving Azure Container Registries..."
     # External call to az CLI - inherent overhead
@@ -68,29 +67,34 @@ function Login-ACR {
         return
     }
 
-    Write-Verbose "Getting credentials for $($selectedACR.Value)..."
-    # External call to az CLI - inherent overhead
-    $credentials = az acr credential show --name $selectedACR.Value -o json | ConvertFrom-Json
-
-    Write-Verbose "Logging into Docker registry $($selectedACR.Name)..."
-    # Prefer password-stdin to avoid credentials in process list
-    $securePwd = $credentials.passwords[0].value
-    $securePwd | docker login $selectedACR.Name --username $credentials.username --password-stdin
+    Write-Verbose "Logging into ACR via az for $($selectedACR.Value)..."
+    # Simpler and avoids handling credentials in shell
+    & az acr login -n $selectedACR.Value | Out-Null
     Write-Host "Logged into Docker registry $($selectedACR.Name)" -ForegroundColor Green
 }
 
 function Create-Network-Access-Exceptions-For-Resources {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess=$true)]
     [Alias("cna")]
     param()
 
-    $confirm = Read-Host "This will download and execute a network configuration script from a remote URL. Continue? (y/N)"
+    $url = 'https://gist.githubusercontent.com/moeller-projects/edef0e5eb63797f7fab3c79c0a30809b/raw/106b33a431f36ab905054c3acc5d1787f8dc7b5e/add-network-exception-for-resources.ps1'
+    Write-Host "About to download and run: $url" -ForegroundColor Yellow
+    $confirm = Read-Host "Continue? (y/N)"
     if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
-    Write-Verbose "Downloading and executing network exception script..."
-    if ($PSVersionTable.PSVersion.Major -ge 6) {
-        Invoke-WebRequest -TimeoutSec 30 -ErrorAction Stop https://gist.githubusercontent.com/moeller-projects/edef0e5eb63797f7fab3c79c0a30809b/raw/106b33a431f36ab905054c3acc5d1787f8dc7b5e/add-network-exception-for-resources.ps1 | Invoke-Expression
-    } else {
-        Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop https://gist.githubusercontent.com/moeller-projects/edef0e5eb63797f7fab3c79c0a30809b/raw/106b33a431f36ab905054c3acc5d1787f8dc7b5e/add-network-exception-for-resources.ps1 | Invoke-Expression
+    $temp = [System.IO.Path]::GetTempFileName().Replace('.tmp','.ps1')
+    try {
+        Write-Verbose "Downloading script to $temp..."
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            Invoke-WebRequest -TimeoutSec 30 -ErrorAction Stop -Uri $url -OutFile $temp
+        } else {
+            Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop -Uri $url -OutFile $temp
+        }
+        if ($PSCmdlet.ShouldProcess($temp, 'execute downloaded script')) {
+            & $temp
+            Write-Host "Network access exceptions script executed." -ForegroundColor Green
+        }
+    } finally {
+        Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue
     }
-    Write-Host "Network access exceptions script executed." -ForegroundColor Green
 }

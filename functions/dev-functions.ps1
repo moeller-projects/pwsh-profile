@@ -5,6 +5,47 @@ $global:ProjectPaths = @(
     "D:\projects\research"
 )
 
+# Project paths configuration helpers
+function Get-ProjectConfigPath {
+    if ($IsWindows) {
+        $base = $env:APPDATA
+        if (-not $base) { $base = Join-Path $HOME 'AppData/Roaming' }
+        return (Join-Path $base 'pwsh-profile/config.json')
+    } else {
+        return (Join-Path $HOME '.config/pwsh-profile/config.json')
+    }
+}
+
+function Get-ProjectPaths {
+    $cfgPath = Get-ProjectConfigPath
+    if (Test-Path -LiteralPath $cfgPath) {
+        try {
+            $json = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            if ($json.ProjectRoots -and $json.ProjectRoots.Count -gt 0) { return [string[]]$json.ProjectRoots }
+        } catch {
+            Write-Verbose "Failed to parse project config at ${cfgPath}: $($_.Exception.Message)"
+        }
+    }
+    if ($env:PWSH_PROJECT_PATHS) { return ($env:PWSH_PROJECT_PATHS -split ';|,') }
+    return $global:ProjectPaths
+}
+
+function Set-ProjectPaths {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param([Parameter(Mandatory)][string[]]$Paths)
+    $cfgPath = Get-ProjectConfigPath
+    $cfgDir = Split-Path -Parent $cfgPath
+    if (-not (Test-Path -LiteralPath $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
+    $obj = @{ ProjectRoots = $Paths }
+    $json = $obj | ConvertTo-Json -Depth 3
+    if ($PSCmdlet.ShouldProcess($cfgPath, 'write project paths config')) {
+        Set-Content -LiteralPath $cfgPath -Value $json -Encoding UTF8
+        Write-Verbose "Saved project paths to $cfgPath"
+    }
+}
+
+$global:ProjectPaths = Get-ProjectPaths
+
 # Custom argument completer for substring matching
 Register-ArgumentCompleter -CommandName Enter-ProjectDirectory -ParameterName ProjectName -ScriptBlock {
     param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -95,8 +136,16 @@ function Clear-Cache {
     Write-Host "Cache clearing completed." -ForegroundColor Green
 }
 
-function pkill($name) { Get-Process $name -ErrorAction SilentlyContinue | Stop-Process }
-function pgrep($name) { Get-Process $name -ErrorAction SilentlyContinue }
+function pkill {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name)
+    Get-Process $Name -ErrorAction SilentlyContinue | Stop-Process
+}
+function pgrep {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name)
+    Get-Process $Name -ErrorAction SilentlyContinue
+}
 function Stop-ProcessForce {
     [CmdletBinding()]
     [Alias('k9')]
@@ -105,13 +154,24 @@ function Stop-ProcessForce {
     )
     Stop-Process -Name $Name -Force -ErrorAction SilentlyContinue
 }
-function sysinfo { Get-ComputerInfo }
+function sysinfo { [CmdletBinding()] param() Get-ComputerInfo }
 function flushdns {
     Clear-DnsClientCache
     Write-Information "DNS has been flushed"
 }
-function which($name) { Get-Command $name | Select-Object -ExpandProperty Definition }
-function export($name, $value) { set-item -force -path "env:$name" -value $value }
+function which {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name)
+    Get-Command $Name | Select-Object -ExpandProperty Definition
+}
+function export {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Value
+    )
+    set-item -force -path "env:$Name" -value $Value
+}
 
 function uptime {
     [CmdletBinding()]

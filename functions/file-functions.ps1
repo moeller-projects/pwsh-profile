@@ -1,6 +1,7 @@
 function Get-FileSize {
+    [CmdletBinding()]
     param(
-        [string]$Path
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -89,8 +90,9 @@ function Share-File {
 }
 
 function Watch-File {
+    [CmdletBinding()]
     param (
-        [string]$Path
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path
     )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         Write-Warning "File not found: $Path"
@@ -100,59 +102,75 @@ function Watch-File {
 }
 function wf { Watch-File -Path $args[0] }
 
-function touch($file) {
-    $full = Join-Path $PWD.Path $file
+function touch {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$File)
+    $full = Join-Path $PWD.Path $File
     Set-Content -LiteralPath $full -Value '' -NoNewline -Force
     Write-Verbose "Created empty file: $full"
 }
 
 function Find-File {
+    [CmdletBinding()]
     [Alias('ff')]
-    param($name)
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name)
     Write-Verbose "Searching for files matching '*$name*' in '$($PWD.Path)' and subdirectories..."
-    [System.IO.Directory]::EnumerateFiles($PWD.Path, "*$name*", [System.IO.SearchOption]::AllDirectories)
+    [System.IO.Directory]::EnumerateFiles($PWD.Path, "*$Name*", [System.IO.SearchOption]::AllDirectories)
     Write-Verbose "File search completed."
 }
 
-function unzip($file) {
-    Write-Information "Extracting $file to $pwd"
+function unzip {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$File)
+    Write-Information "Extracting $File to $pwd"
     # Get-ChildItem is fine for locating the specific file.
-    $fullFile = Get-ChildItem -Path $pwd -Filter $file | Select-Object -ExpandProperty FullName
+    $fullFile = Get-ChildItem -Path $pwd -Filter $File | Select-Object -ExpandProperty FullName
     if (-not $fullFile) {
-        Write-Error "Archive file '$file' not found in current directory."
+        Write-Error "Archive file '$File' not found in current directory."
         return
     }
     Expand-Archive -LiteralPath $fullFile -DestinationPath $pwd -Force
-    Write-Host "Extraction of $file completed." -ForegroundColor Green
+    Write-Host "Extraction of $File completed." -ForegroundColor Green
 }
 
 function head {
-    param($Path, $n = 10)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path,
+        [Parameter()][ValidateRange(1, 1000000)][int]$n = 10
+    )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Write-Warning "File not found: $Path"; return }
     Get-Content -LiteralPath $Path -Head $n
 }
 function tail {
-    param($Path, $n = 10, [switch]$f = $false)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path,
+        [Parameter()][ValidateRange(1, 1000000)][int]$n = 10,
+        [Parameter()][switch]$f = $false
+    )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Write-Warning "File not found: $Path"; return }
     Get-Content -LiteralPath $Path -Tail $n -Wait:$f
 }
 
 function nf {
-    param($name)
-    $full = Join-Path $PWD.Path $name
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name)
+    $full = Join-Path $PWD.Path $Name
     Set-Content -LiteralPath $full -Value '' -NoNewline -Force
     Write-Verbose "Created new file: $full"
 }
 
 function mkcd {
-    param($dir)
-    $full = Join-Path $PWD.Path $dir
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Dir)
+    $full = Join-Path $PWD.Path $Dir
     if (-not (Test-Path -LiteralPath $full)) {
         New-Item -ItemType Directory -Path $full -Force | Out-Null
         Write-Verbose "Created directory: $full"
     }
     Set-Location -LiteralPath $full
-    Write-Host "Changed directory to: $dir" -ForegroundColor Green
+    Write-Host "Changed directory to: $Dir" -ForegroundColor Green
 }
 
 function trash {
@@ -181,8 +199,10 @@ function trash {
     }
 }
 
-function la { Get-ChildItem | Format-Table -AutoSize }
+function la { [CmdletBinding()] param() Get-ChildItem | Format-Table -AutoSize }
 function ll {
+    [CmdletBinding()]
+    param()
     if ($PSVersionTable.PSVersion.Major -ge 7) {
         Get-ChildItem -Force -Recurse -Depth 1 | Format-Table -AutoSize
     } else {
@@ -190,8 +210,8 @@ function ll {
     }
 }
 
-function cpy { Set-Clipboard $args[0] }
-function pst { Get-Clipboard }
+function cpy { [CmdletBinding()] param([Parameter(Mandatory)][string]$Text) Set-Clipboard $Text }
+function pst { [CmdletBinding()] param() Get-Clipboard }
 
 function Publish-Hastebin {
     [CmdletBinding()]
@@ -226,14 +246,19 @@ function Publish-Hastebin {
     }
 }
 
-function grep($regex, $dir) {
-    if ($dir) {
+function grep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Regex,
+        [string]$Dir
+    )
+    if ($Dir) {
         # Get-ChildItem with Select-String is efficient for this.
-        if (-not (Test-Path -LiteralPath $dir)) { Write-Warning "Directory not found: $dir"; return }
-        Get-ChildItem -LiteralPath $dir | Select-String $regex
+        if (-not (Test-Path -LiteralPath $Dir)) { Write-Warning "Directory not found: $Dir"; return }
+        Get-ChildItem -LiteralPath $Dir | Select-String $Regex
     }
     else {
-        $input | Select-String $regex
+        $input | Select-String $Regex
     }
 }
 
@@ -255,9 +280,9 @@ function sed {
     }
 }
 
-function goParent { Set-Location .. }
-function goToParent2Levels { Set-Location ../.. }
-function goToHome { Set-Location ~ }
+function goParent { [CmdletBinding()] param() Set-Location .. }
+function goToParent2Levels { [CmdletBinding()] param() Set-Location ../.. }
+function goToHome { [CmdletBinding()] param() Set-Location ~ }
 
 # Aliases: These are assumed to be moved to the main profile script as part of deferred loading.
 # Set-Alias -Name c -Value Clear-Host
