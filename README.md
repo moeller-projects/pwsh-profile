@@ -29,3 +29,18 @@ Dependencies (optional but recommended)
 - A non-destructive smoke-test harness exercises safe functions individually.
 - Run: `pwsh -File ./scripts/Invoke-Smoketests.ps1 -VerboseOutput`
 - The script creates a temporary workspace, uses `-WhatIf` for destructive commands, and prints a pass/fail summary.
+
+## Configuration
+- Project roots for `Enter-ProjectDirectory` are read from a user config file:
+  - Windows: `%APPDATA%/pwsh-profile/config.json`
+  - Linux/macOS: `~/.config/pwsh-profile/config.json`
+- Example content:
+  ```json
+  { "ProjectRoots": ["D:/projects/private", "D:/projects/work"] }
+  ```
+- You can also set temporarily via env: `PWSH_PROJECT_PATHS="D:/p1;D:/p2"`.
+- Use `Set-ProjectPaths -Paths @('D:/p1','D:/p2')` to write the config (supports `-WhatIf`).
+
+## Performance
+- The profile uses true deferred init via `PowerShell.OnIdle` to keep first prompt fast.
+- Measure load time: `pwsh -File ./test-loading-time.ps1 -Iterations 20`.
