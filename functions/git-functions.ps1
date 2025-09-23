@@ -36,7 +36,8 @@ function Switch-GitBranch {
     [Alias('gg','Git-Go')]
     param (
         [Parameter(Mandatory = $false, Position = 0, ValueFromRemainingArguments = $true)]
-        [Object[]] $Arguments
+        [Object[]] $Arguments,
+        [switch]$Fetch
     )
 
     begin {
@@ -56,9 +57,10 @@ function Switch-GitBranch {
             return
         }
 
-        Write-Verbose "Fetching all git remotes..."
-        # External call to git - inherent overhead
-        git fetch --all | Out-Null
+        if ($Fetch) {
+            Write-Verbose "Fetching all git remotes..."
+            git fetch --all | Out-Null
+        }
 
         Write-Verbose "Getting local branches..."
         $localBranches = @(git branch --format='%(refname:short)')

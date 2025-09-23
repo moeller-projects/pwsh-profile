@@ -3,17 +3,19 @@ function Select-KubeContext {
     [Alias('kubectx')]
     param (
         [parameter(Mandatory = $False, Position = 0, ValueFromRemainingArguments = $True)]
-        [Object[]] $Arguments
+        [Object[]] $Arguments,
+        [switch]$Refresh
     )
     begin {
         if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) { Write-Error "kubectl not found in PATH."; return }
         if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { Write-Error "fzf not found in PATH."; return }
-        if ($Arguments.Length -gt 0) {
-            $ctx = & kubectl config get-contexts -o=name | fzf -q ($Arguments -join ' ') # Pass arguments correctly
+        $ttl = 60
+        if ($Refresh -or -not $script:KubeContextsCache -or ((Get-Date) - $script:KubeContextsCacheTime).TotalSeconds -gt $ttl) {
+            $script:KubeContextsCache = @(& kubectl config get-contexts -o=name)
+            $script:KubeContextsCacheTime = Get-Date
         }
-        else {
-            $ctx = & kubectl config get-contexts -o=name | fzf
-        }
+        $source = $script:KubeContextsCache
+        $ctx = if ($Arguments.Length -gt 0) { $source | fzf -q ($Arguments -join ' ') } else { $source | fzf }
     }
     process {
         if ($ctx -ne '') {
@@ -31,17 +33,19 @@ function Select-KubeNamespace {
     [Alias('kubens')]
     param (
         [parameter(Mandatory = $False, Position = 0, ValueFromRemainingArguments = $True)]
-        [Object[]] $Arguments
+        [Object[]] $Arguments,
+        [switch]$Refresh
     )
     begin {
         if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) { Write-Error "kubectl not found in PATH."; return }
         if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { Write-Error "fzf not found in PATH."; return }
-        if ($Arguments.Length -gt 0) {
-            $ns = & kubectl get namespace -o=name | fzf -q ($Arguments -join ' ') # Pass arguments correctly
+        $ttl = 60
+        if ($Refresh -or -not $script:KubeNamespacesCache -or ((Get-Date) - $script:KubeNamespacesCacheTime).TotalSeconds -gt $ttl) {
+            $script:KubeNamespacesCache = @(& kubectl get namespace -o=name)
+            $script:KubeNamespacesCacheTime = Get-Date
         }
-        else {
-            $ns = & kubectl get namespace -o=name | fzf
-        }
+        $source = $script:KubeNamespacesCache
+        $ns = if ($Arguments.Length -gt 0) { $source | fzf -q ($Arguments -join ' ') } else { $source | fzf }
     }
     process {
         if ($ns -ne '') {
