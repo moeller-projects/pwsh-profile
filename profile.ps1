@@ -116,6 +116,70 @@ if (Test-IsInteractive -eq $true) {
         function prompt { "[loading]: PS $($ExecutionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
     }
 
+    # Early PSReadLine initialization (for immediate editing experience)
+    try {
+        if (-not (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue)) {
+            Import-Module PSReadLine -ErrorAction SilentlyContinue | Out-Null
+        }
+        if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
+            $prediction = if ($Env:PWSH_PREDICTION -eq 'plugin') { 'HistoryAndPlugin' } else { 'History' }
+            $psReadLineOptions = @{
+                EditMode                      = 'Windows'
+                HistoryNoDuplicates           = $true
+                HistorySearchCursorMovesToEnd = $true
+                Colors                        = @{
+                    Command   = '#87CEEB'
+                    Parameter = '#98FB98'
+                    Operator  = '#FFB6C1'
+                    Variable  = '#DDA0DD'
+                    String    = '#FFDAB9'
+                    Number    = '#B0E0E6'
+                    Type      = '#F0E68C'
+                    Comment   = '#D3D3D3'
+                    Keyword   = '#8367c7'
+                    Error     = '#FF6347'
+                }
+                PredictionSource              = $prediction
+                PredictionViewStyle           = 'ListView'
+                BellStyle                     = 'None'
+            }
+            Set-PSReadLineOption -PromptText ''
+            Set-PSReadLineOption @psReadLineOptions
+
+            $keyHandlers = @(
+                @{ Key = 'UpArrow'; Function = 'HistorySearchBackward' },
+                @{ Key = 'DownArrow'; Function = 'HistorySearchForward' },
+                @{ Key = 'Tab'; Function = 'MenuComplete' },
+                @{ Chord = 'Ctrl+d'; Function = 'DeleteChar' },
+                @{ Chord = 'Ctrl+w'; Function = 'BackwardDeleteWord' },
+                @{ Chord = 'Alt+d'; Function = 'DeleteWord' },
+                @{ Chord = 'Ctrl+LeftArrow'; Function = 'BackwardWord' },
+                @{ Chord = 'Ctrl+RightArrow'; Function = 'ForwardWord' },
+                @{ Chord = 'Ctrl+z'; Function = 'Undo' },
+                @{ Chord = 'Ctrl+y'; Function = 'Redo' },
+                @{ Key = 'Ctrl+l'; Function = 'ClearScreen' },
+                @{ Chord = 'Enter'; Function = 'ValidateAndAcceptLine' },
+                @{ Chord = 'Ctrl+Enter'; Function = 'AcceptSuggestion' },
+                @{ Chord = 'Alt+v'; Function = 'SwitchPredictionView' }
+            )
+            foreach ($handler in $keyHandlers) {
+                if ($handler.ContainsKey('Key')) {
+                    Set-PSReadLineKeyHandler -Key $handler.Key -Function $handler.Function
+                } elseif ($handler.ContainsKey('Chord')) {
+                    Set-PSReadLineKeyHandler -Chord $handler.Chord -Function $handler.Function
+                }
+            }
+            Set-PSReadLineOption -AddToHistoryHandler {
+                param($line)
+                $sensitivePatterns = @('password', 'secret', 'token', 'apikey', 'connectionstring')
+                return -not ($sensitivePatterns | Where-Object { $line -match $_ })
+            }
+            Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+            Set-PSReadLineOption -MaximumHistoryCount 10000
+            Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
+        }
+    } catch { }
+
     # Set initial window title
     $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
     $Host.UI.RawUI.WindowTitle = "PowerShell {0}$adminSuffix" -f $PSVersionTable.PSVersion.ToString()
@@ -126,93 +190,12 @@ if (Test-IsInteractive -eq $true) {
     Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -Action {
         if ($script:ProfileDeferredInitDone) { return }
         $script:ProfileDeferredInitDone = $true
-        # Track theme initialization status for proof/debug
-        $script:ProfileThemeStatus = 'unknown'
         try {
             # Single module for all deferred initialization
             New-Module -Name 'ProfileDeferredInitModule' -ScriptBlock {
                 # Import our functions via module for autoload
                 try { Import-Module PwshProfile -ErrorAction Stop } catch { Write-Verbose ("PwshProfile import failed: {0}" -f $_.Exception.Message) }
 
-                Set-PSReadLineOption -PromptText ''
-
-                function Initialize-Theme {
-                    $promptChoice = $Env:PWSH_PROMPT
-                    switch ($promptChoice) {
-                        'plain'   { return }
-                        'starship' {
-                            if (Get-Command starship -ErrorAction SilentlyContinue) {
-                                starship init powershell | Out-String | Invoke-Expression
-                                return
-                            }
-                        }
-                        default {
-                            if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
-                                oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Invoke-Expression
-                                $Env:POSH_GIT_ENABLED = $true
-                                return
-                            }
-                        }
-                    }
-                }
-                function Initialize-PSReadLine {
-                    $prediction = if ($Env:PWSH_PREDICTION -eq 'plugin') { 'HistoryAndPlugin' } else { 'History' }
-                    $psReadLineOptions = @{
-                        EditMode                      = 'Windows'
-                        HistoryNoDuplicates           = $true
-                        HistorySearchCursorMovesToEnd = $true
-                        Colors                        = @{
-                            Command   = '#87CEEB'
-                            Parameter = '#98FB98'
-                            Operator  = '#FFB6C1'
-                            Variable  = '#DDA0DD'
-                            String    = '#FFDAB9'
-                            Number    = '#B0E0E6'
-                            Type      = '#F0E68C'
-                            Comment   = '#D3D3D3'
-                            Keyword   = '#8367c7'
-                            Error     = '#FF6347'
-                        }
-                        PredictionSource              = $prediction
-                        PredictionViewStyle           = 'ListView'
-                        BellStyle                     = 'None'
-                    }
-                    Set-PSReadLineOption @psReadLineOptions
-
-                    $keyHandlers = @(
-                        @{ Key = 'UpArrow'; Function = 'HistorySearchBackward' },
-                        @{ Key = 'DownArrow'; Function = 'HistorySearchForward' },
-                        @{ Key = 'Tab'; Function = 'MenuComplete' },
-                        @{ Chord = 'Ctrl+d'; Function = 'DeleteChar' },
-                        @{ Chord = 'Ctrl+w'; Function = 'BackwardDeleteWord' },
-                        @{ Chord = 'Alt+d'; Function = 'DeleteWord' },
-                        @{ Chord = 'Ctrl+LeftArrow'; Function = 'BackwardWord' },
-                        @{ Chord = 'Ctrl+RightArrow'; Function = 'ForwardWord' },
-                        @{ Chord = 'Ctrl+z'; Function = 'Undo' },
-                        @{ Chord = 'Ctrl+y'; Function = 'Redo' },
-                        @{ Key = 'Ctrl+l'; Function = 'ClearScreen' },
-                        @{ Chord = 'Enter'; Function = 'ValidateAndAcceptLine' },
-                        @{ Chord = 'Ctrl+Enter'; Function = 'AcceptSuggestion' },
-                        @{ Chord = 'Alt+v'; Function = 'SwitchPredictionView' }
-                    )
-                    foreach ($handler in $keyHandlers) {
-                        if ($handler.ContainsKey('Key')) {
-                            Set-PSReadLineKeyHandler -Key $handler.Key -Function $handler.Function
-                        } elseif ($handler.ContainsKey('Chord')) {
-                            Set-PSReadLineKeyHandler -Chord $handler.Chord -Function $handler.Function
-                        }
-                    }
-                    Set-PSReadLineOption -AddToHistoryHandler {
-                        param($line)
-                        $sensitivePatterns = @('password', 'secret', 'token', 'apikey', 'connectionstring')
-                        return -not ($sensitivePatterns | Where-Object { $line -match $_ })
-                    }
-                    Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-                    Set-PSReadLineOption -MaximumHistoryCount 10000
-                    Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
-                }
-                Initialize-Theme
-                Initialize-PSReadLine
                 
                 # Load optional modules (PSMenu, etc.) and completions if enabled
                 if (Get-Command Import-RequiredModules -ErrorAction SilentlyContinue) {
@@ -288,60 +271,6 @@ if (Test-IsInteractive -eq $true) {
                     }
                 }
             } | Import-Module -Global
-
-            # Ensure prompt theme initialization runs in GLOBAL scope, not module scope.
-            # Running inside the module can scope the 'prompt' function to the module,
-            # preventing Starship/Oh-My-Posh from taking effect in the session.
-            try {
-                if ($global:ProfilePromptInitializedEarly) {
-                    # Already initialized at first render
-                    $cmd = Get-Command prompt -ErrorAction SilentlyContinue
-                    if ($null -ne $cmd -and $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
-                        $script:ProfileThemeStatus = 'starship:early'
-                    } elseif ($null -ne $cmd -and $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
-                        $script:ProfileThemeStatus = 'oh-my-posh:early'
-                    } else {
-                        $script:ProfileThemeStatus = 'early:init-no-prompt'
-                    }
-                } else {
-                    $promptChoice = $Env:PWSH_PROMPT
-                    switch ($promptChoice) {
-                        'plain'   { $script:ProfileThemeStatus = 'plain' }
-                        'starship' {
-                            if (Get-Command starship -ErrorAction SilentlyContinue) {
-                                $init = starship init powershell | Out-String
-                                & ([ScriptBlock]::Create($init))
-                                $cmd = Get-Command prompt -ErrorAction SilentlyContinue
-                                if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
-                                    $script:ProfileThemeStatus = 'starship:ok'
-                                } else {
-                                    $script:ProfileThemeStatus = 'starship:init-no-prompt'
-                                }
-                            } else {
-                                $script:ProfileThemeStatus = 'starship:not-installed'
-                            }
-                        }
-                        default {
-                            if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
-                                $init = oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String
-                                & ([ScriptBlock]::Create($init))
-                                $Env:POSH_GIT_ENABLED = $true
-                                $cmd = Get-Command prompt -ErrorAction SilentlyContinue
-                                if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
-                                    $script:ProfileThemeStatus = 'oh-my-posh:ok'
-                                } else {
-                                    $script:ProfileThemeStatus = 'oh-my-posh:init-no-prompt'
-                                }
-                            } else {
-                                $script:ProfileThemeStatus = 'oh-my-posh:not-installed'
-                            }
-                        }
-                    }
-                }
-            } catch {
-                $script:ProfileThemeStatus = 'theme:init-error'
-                Write-Verbose ("Theme init (global scope) failed: {0}" -f $_.Exception.Message)
-            }
 
             # EDITOR setup
             # (additional EDITOR/completers moved inside ProfileDeferredInitModule)
