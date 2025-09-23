@@ -32,7 +32,7 @@ function Enter-ProjectDirectory {
         [string] $ProjectName
     )
 
-    foreach ($projectPath in $projectPaths) {
+    foreach ($projectPath in $global:ProjectPaths) {
         # Use .NET Path.Combine for performance
         $fullProjectPath = [System.IO.Path]::Combine($projectPath, $ProjectName)
         if ([System.IO.Directory]::Exists($fullProjectPath)) {
@@ -64,30 +64,47 @@ function Get-RecentHistory {
 }
 
 function Clear-Cache {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param()
     Write-Host "Clearing cache..." -ForegroundColor Cyan
 
-    # Using Remove-Item (cmdlet) which is typically efficient for these tasks.
-    # Direct .NET File.Delete/Directory.Delete is an option but adds complexity for recursion/error handling.
-    Write-Host "Clearing Windows Prefetch..." -ForegroundColor Yellow
-    Remove-Item -Path "$env:SystemRoot\Prefetch\*" -Force -ErrorAction SilentlyContinue
+    $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
+    if (-not $isWindowsCompat) {
+        Write-Warning "Clear-Cache currently supports Windows only."
+        return
+    }
 
-    Write-Host "Clearing Windows Temp..." -ForegroundColor Yellow
-    Remove-Item -Path "$env:SystemRoot\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
-
-    Write-Host "Clearing User Temp..." -ForegroundColor Yellow
-    Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-
-    Write-Host "Clearing Internet Explorer Cache..." -ForegroundColor Yellow
-    Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*" -Recurse -Force -ErrorAction SilentlyContinue
+    # Using Remove-Item (cmdlet) with confirmation support
+    if ($PSCmdlet.ShouldProcess("Windows Prefetch")) {
+        Write-Verbose "Clearing Windows Prefetch..."
+        Remove-Item -Path "$env:SystemRoot\Prefetch\*" -Force -ErrorAction SilentlyContinue
+    }
+    if ($PSCmdlet.ShouldProcess("Windows Temp")) {
+        Write-Verbose "Clearing Windows Temp..."
+        Remove-Item -Path "$env:SystemRoot\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($PSCmdlet.ShouldProcess("User Temp")) {
+        Write-Verbose "Clearing User Temp..."
+        Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($PSCmdlet.ShouldProcess("IE/Edge Cache")) {
+        Write-Verbose "Clearing IE/Edge Cache..."
+        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Host "Cache clearing completed." -ForegroundColor Green
 }
 
 function pkill($name) { Get-Process $name -ErrorAction SilentlyContinue | Stop-Process }
-function pgrep($name) { Get-Process $name }
-function k9 { Stop-Process -Name $args[0] }
+function pgrep($name) { Get-Process $name -ErrorAction SilentlyContinue }
+function Stop-ProcessForce {
+    [CmdletBinding()]
+    [Alias('k9')]
+    param(
+        [Parameter(Mandatory)][string]$Name
+    )
+    Stop-Process -Name $Name -Force -ErrorAction SilentlyContinue
+}
 function sysinfo { Get-ComputerInfo }
 function flushdns {
     Clear-DnsClientCache

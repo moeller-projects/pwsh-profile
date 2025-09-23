@@ -8,13 +8,18 @@ function Import-RequiredModules {
     $missingModules = $modulesToImport | Where-Object { $_ -notin $availableModules }
 
     if ($missingModules.Count -gt 0) {
-        Write-Host "Installing missing modules: $( $missingModules -join ', ' )" -ForegroundColor Yellow
-        # Install-Module is a long-running operation, no direct micro-optimizations apply.
-        # -Force -SkipPublisherCheck are important for unattended installs.
-        Install-Module -Name $missingModules -Scope CurrentUser -Force -SkipPublisherCheck
-        Write-Host "Missing modules installed. Refreshing module list." -ForegroundColor Yellow
-        # Refresh available modules after installation
-        $availableModules = Get-Module -ListAvailable | Select-Object -ExpandProperty Name -Unique
+        if ($env:PWSH_PROFILE_AUTO_INSTALL -eq '1') {
+            Write-Host "Installing missing modules: $( $missingModules -join ', ' )" -ForegroundColor Yellow
+            # Install-Module is a long-running operation, no direct micro-optimizations apply.
+            # -Force -SkipPublisherCheck are important for unattended installs.
+            Install-Module -Name $missingModules -Scope CurrentUser -Force -SkipPublisherCheck
+            Write-Host "Missing modules installed. Refreshing module list." -ForegroundColor Yellow
+            # Refresh available modules after installation
+            $availableModules = Get-Module -ListAvailable | Select-Object -ExpandProperty Name -Unique
+        }
+        else {
+            Write-Verbose "Missing modules not installed (PWSH_PROFILE_AUTO_INSTALL != '1'): $( $missingModules -join ', ' )"
+        }
     }
 
     $toImport = $modulesToImport | Where-Object { $_ -in $availableModules }

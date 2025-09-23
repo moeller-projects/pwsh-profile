@@ -1,4 +1,7 @@
 function Initialize-Completion {
+    if (-not (Get-Command -Name Test-CommandExists -ErrorAction SilentlyContinue)) {
+        function Test-CommandExists { param($command) try { $null -ne (Get-Command -Name $command -ErrorAction SilentlyContinue) } catch { $false } }
+    }
     if (Test-CommandExists volta) {
         Write-Verbose "Initializing volta completions..."
         volta completions powershell | Out-String | Invoke-Expression

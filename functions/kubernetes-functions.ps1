@@ -6,6 +6,8 @@ function Select-KubeContext {
         [Object[]] $Arguments
     )
     begin {
+        if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) { Write-Error "kubectl not found in PATH."; return }
+        if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { Write-Error "fzf not found in PATH."; return }
         if ($Arguments.Length -gt 0) {
             $ctx = & kubectl config get-contexts -o=name | fzf -q ($Arguments -join ' ') # Pass arguments correctly
         }
@@ -32,6 +34,8 @@ function Select-KubeNamespace {
         [Object[]] $Arguments
     )
     begin {
+        if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) { Write-Error "kubectl not found in PATH."; return }
+        if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { Write-Error "fzf not found in PATH."; return }
         if ($Arguments.Length -gt 0) {
             $ns = & kubectl get namespace -o=name | fzf -q ($Arguments -join ' ') # Pass arguments correctly
         }
