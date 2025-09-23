@@ -1,0 +1,45 @@
+name: PowerShell Static Analysis
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  psscriptanalyzer:
+    name: Run PSScriptAnalyzer
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted } catch { }
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+
+      - name: Run Analyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $settings = Join-Path $PWD 'PSScriptAnalyzerSettings.psd1'
+          if (-not (Test-Path $settings)) {
+            Write-Host "Settings file not found at $settings; running with defaults."
+            $results = Invoke-ScriptAnalyzer -Path . -Recurse
+          } else {
+            $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings $settings
+          }
+          if ($results) {
+            $results | Select RuleName,Severity,ScriptName,Line,Message | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
+          } else {
+            Write-Host 'No issues found.'
+          }
+
