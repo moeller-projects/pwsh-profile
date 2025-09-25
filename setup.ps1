@@ -34,7 +34,7 @@ function Write-Log {
     }
 }
 
-function Ensure-Directory {
+function New-DirectoryIfMissing {
     param (
         [Parameter(Mandatory)]
         [string]$DirectoryPath
@@ -76,7 +76,7 @@ function Remove-ExistingProfile {
     }
 }
 
-function Create-SymbolicLink {
+function New-ProfileSymbolicLink {
     param (
         [Parameter(Mandatory)]
         [string]$Source,
@@ -121,9 +121,9 @@ function Main {
     }
 
     $TargetProfileDirectory = Split-Path $TargetProfile -Parent
-    Ensure-Directory -DirectoryPath $TargetProfileDirectory
+    New-DirectoryIfMissing -DirectoryPath $TargetProfileDirectory
     Remove-ExistingProfile -ProfilePath $TargetProfile
-    Create-SymbolicLink -Source $SourceProfile -Target $TargetProfile
+    New-ProfileSymbolicLink -Source $SourceProfile -Target $TargetProfile
 
     Write-Log -Level INFO -Message "--- Setup complete ---"
 }

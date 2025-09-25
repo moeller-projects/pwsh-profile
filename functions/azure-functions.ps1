@@ -14,7 +14,7 @@ function New-MenuItem([String]$Name, [String]$Value) {
     return $MenuItem
 }
 
-function Switch-Azure-Subscription {
+function Switch-AzureSubscription {
     [CmdletBinding()]
     [Alias("sas")]
     param ()
@@ -43,7 +43,7 @@ function Switch-Azure-Subscription {
     Write-Host "Azure subscription set to $($selectedAZSub.Name)" -ForegroundColor Green
 }
 
-function Login-ACR {
+function Connect-ContainerRegistry {
     [CmdletBinding()]
     [Alias("lacr")]
     param ()
@@ -73,8 +73,8 @@ function Login-ACR {
     Write-Host "Logged into Docker registry $($selectedACR.Name)" -ForegroundColor Green
 }
 
-function Create-Network-Access-Exceptions-For-Resources {
-    [CmdletBinding(SupportsShouldProcess=$true)]
+function New-NetworkAccessExceptionForResources {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias("cna")]
     param()
 
@@ -82,19 +82,21 @@ function Create-Network-Access-Exceptions-For-Resources {
     Write-Host "About to download and run: $url" -ForegroundColor Yellow
     $confirm = Read-Host "Continue? (y/N)"
     if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
-    $temp = [System.IO.Path]::GetTempFileName().Replace('.tmp','.ps1')
+    $temp = [System.IO.Path]::GetTempFileName().Replace('.tmp', '.ps1')
     try {
         Write-Verbose "Downloading script to $temp..."
         if ($PSVersionTable.PSVersion.Major -ge 6) {
             Invoke-WebRequest -TimeoutSec 30 -ErrorAction Stop -Uri $url -OutFile $temp
-        } else {
+        }
+        else {
             Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop -Uri $url -OutFile $temp
         }
         if ($PSCmdlet.ShouldProcess($temp, 'execute downloaded script')) {
             & $temp
             Write-Host "Network access exceptions script executed." -ForegroundColor Green
         }
-    } finally {
+    }
+    finally {
         Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue
     }
 }

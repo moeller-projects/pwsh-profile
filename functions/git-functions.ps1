@@ -67,7 +67,7 @@ function Switch-GitBranch {
         Fetch from all remotes before listing.
     #>
     [CmdletBinding()]
-    [Alias('gg', 'Git-Go')]
+    [Alias('gg')]
     param (
         [Parameter(Mandatory = $false, Position = 0, ValueFromRemainingArguments = $true)]
         [Object[]] $Arguments,
@@ -94,19 +94,37 @@ function Switch-GitBranch {
             git fetch --all --prune 2>$null | Out-Null
         }
 
-        # Build local set for existence check
-        $localBranches = @(git for-each-ref --format='%(refname:short)' refs/heads 2>$null)
-        $localBranchSet = @{}
-        foreach ($b in $localBranches) { if ($b) { $localBranchSet[$b.Trim()] = $true } }
+        if (-not (Get-Variable -Name __gitSwitchAvailability -Scope Script -ErrorAction SilentlyContinue)) {
+            Set-Variable -Name __gitSwitchAvailability -Scope Script -Value $false
+            Set-Variable -Name __gitSwitchAvailabilityChecked -Scope Script -Value $false
+        }
 
-        # Candidate list: local + origin/* (filtered). Strip origin/ prefix in display.
-        $candidates = @()
-        $locals = git for-each-ref --format='%(refname:short)' refs/heads 2>$null
-        if ($locals) { $candidates += $locals }
-        $remotes = git for-each-ref --format='%(refname:short)' refs/remotes/origin 2>$null |
-        Where-Object { $_ -and ($_ -ne 'origin/HEAD') -and ($_ -notmatch '^origin/HEAD\b') }
-        if ($remotes) { $candidates += ($remotes | ForEach-Object { $_ -replace '^origin/', '' }) }
-        $candidates = $candidates | Sort-Object -Unique
+        # Build local cache of branch information with a single ref walk
+        $localBranchSet = @{}
+        $candidateNames = New-Object 'System.Collections.Generic.SortedSet[string]'
+        $rawRefs = git for-each-ref --format='%(refname)|%(refname:short)' refs/heads refs/remotes/origin 2>$null
+        foreach ($line in $rawRefs) {
+            if (-not $line) { continue }
+            $parts = $line -split '\|', 2
+            if ($parts.Count -lt 2) { continue }
+            $fullRef = $parts[0].Trim()
+            $shortRef = $parts[1].Trim()
+            if (-not $shortRef) { continue }
+
+            if ($fullRef -like 'refs/heads/*') {
+                $localBranchSet[$shortRef] = $true
+                [void]$candidateNames.Add($shortRef)
+                continue
+            }
+
+            if ($fullRef -like 'refs/remotes/origin/*') {
+                if ($shortRef -eq 'origin/HEAD' -or $shortRef -like 'origin/HEAD/*') { continue }
+                $candidateName = $shortRef -replace '^origin/', ''
+                if ($candidateName) { [void]$candidateNames.Add($candidateName) }
+            }
+        }
+
+        $candidates = $candidateNames.ToArray()
 
         $fzfQuery = ($Arguments -join ' ')
         Write-Verbose "Running fzf to select branch with query '$fzfQuery'..."
@@ -127,12 +145,23 @@ function Switch-GitBranch {
 
         Write-Verbose "[INFO] Selected branch: $__sgb_selected"
 
-        $useGitSwitch = $false
-        if (Get-Command git -ErrorAction SilentlyContinue) {
-            # 'git switch' is available in Git 2.23+. Many Git builds return 129 for -h usage.
-            git switch -h *> $null
-            if ($LASTEXITCODE -in 0, 129) { $useGitSwitch = $true }
+        if (-not $script:__gitSwitchAvailabilityChecked) {
+            $gitVersion = git version --short 2>$null
+            if ($gitVersion -match '^(\d+)\.(\d+)') {
+                $major = [int]$matches[1]
+                $minor = [int]$matches[2]
+                $script:__gitSwitchAvailability = ($major -gt 2) -or ($major -eq 2 -and $minor -ge 23)
+            }
+
+            if (-not $script:__gitSwitchAvailability) {
+                git switch -h *> $null
+                $script:__gitSwitchAvailability = ($LASTEXITCODE -in 0, 129)
+            }
+
+            $script:__gitSwitchAvailabilityChecked = $true
         }
+
+        $useGitSwitch = $script:__gitSwitchAvailability
 
         if ($__sgb_localSet.ContainsKey($__sgb_selected)) {
             Write-Host "[INFO] Checking out existing local branch: $__sgb_selected" -ForegroundColor Cyan
@@ -154,9 +183,24 @@ function Get-RepoSize {
     param([Parameter(Mandatory)][string]$Path)
 
     try {
-        $sum = (Get-ChildItem -Path $Path -File -Recurse -Force -ErrorAction SilentlyContinue |
-            Measure-Object -Property Length -Sum).Sum
-        return ([long]($sum))
+        $directory = [System.IO.DirectoryInfo]::new($Path)
+        $totalSize = 0L
+
+        try {
+            $options = [System.IO.EnumerationOptions]::new()
+            $options.RecurseSubdirectories = $true
+            $options.IgnoreInaccessible = $true
+            foreach ($file in $directory.EnumerateFiles('*', $options)) {
+                $totalSize += $file.Length
+            }
+        }
+        catch {
+            $sum = (Get-ChildItem -Path $Path -File -Recurse -Force -ErrorAction SilentlyContinue |
+                Measure-Object -Property Length -Sum).Sum
+            if ($sum) { $totalSize = [long]$sum }
+        }
+
+        return $totalSize
     }
     catch {
         return 0
@@ -263,6 +307,15 @@ function Optimize-GitRepository {
     .PARAMETER DryRun
         If specified, shows what would be done without actually making changes
 
+    .PARAMETER Fetch
+        If specified, fetches from all remotes before processing.
+
+    .PARAMETER Aggressive
+        If specified, processes aggressive cleanup steps (git gc --aggressive, git reflog expire, git repack).
+
+    .PARAMETER CollectSizeMetrics
+        If specified, measures repository size before and after processing. Skipped by default to keep runs fast.
+
     .EXAMPLE
         Optimize-GitRepository -RepoPath "C:\MyProject"
         # Processes a single repository
@@ -288,6 +341,8 @@ function Optimize-GitRepository {
         [switch]$Fetch,
 
         [switch]$Aggressive,
+
+        [switch]$CollectSizeMetrics,
 
         [string[]]$ProtectedBranches = @('main', 'master', 'dev', 'develop')
     )
@@ -315,9 +370,12 @@ function Optimize-GitRepository {
             Write-Host "📍 PATH: $Path" -ForegroundColor Gray
             Write-Host "═"*70 -ForegroundColor Blue
 
-            # Get initial repo size
-            $initialSize = Get-RepoSize -Path $Path
-            Write-Host "📊 Initial repository size: $(Format-FileSize $initialSize)" -ForegroundColor Gray
+            # Get initial repo size if metrics requested
+            $initialSize = $null
+            if ($CollectSizeMetrics) {
+                $initialSize = Get-RepoSize -Path $Path
+                Write-Host "📊 Initial repository size: $(Format-FileSize $initialSize)" -ForegroundColor Gray
+            }
 
             # Show current branch
             $currentBranch = git branch --show-current 2>$null
@@ -334,18 +392,24 @@ function Optimize-GitRepository {
             Write-Host "`n📊 Status before cleanup:" -ForegroundColor Yellow
             git status --short --branch 2>$null
 
-            # Build branch -> upstream mapping without checkout
-            $branchMap = @{}
-            git for-each-ref --format='%(refname:short)|%(upstream:short)' refs/heads 2>$null |
+            # Build branch -> metadata mapping without checkout
+            $branchMetadata = @{}
+            git for-each-ref --format='%(refname:short)|%(upstream:short)|%(upstream:track)' refs/heads 2>$null |
             ForEach-Object {
                 if (-not $_) { return }
-                $parts = $_ -split '\|', 2
-                $b = $parts[0].Trim(); $u = $parts[1].Trim()
-                if ($b) { $branchMap[$b] = $u }
+                $parts = $_ -split '\|', 3
+                $branchName = $parts[0].Trim()
+                if (-not $branchName) { return }
+                $upstream = if ($parts.Count -gt 1) { $parts[1].Trim() } else { '' }
+                $track = if ($parts.Count -gt 2) { $parts[2].Trim() } else { '' }
+                $branchMetadata[$branchName] = [pscustomobject]@{
+                    Upstream = $upstream
+                    Track    = $track
+                }
             }
 
             # Candidate local branches excluding protected and current
-            $localBranches = ($branchMap.Keys | Where-Object {
+            $localBranches = ($branchMetadata.Keys | Where-Object {
                     $_ -and ($_ -ne $currentBranch) -and ($ProtectedBranches -notcontains $_) -and ($_ -notmatch '^dev/|^develop/')
                 })
 
@@ -358,23 +422,25 @@ function Optimize-GitRepository {
                 # Heuristic: skip untracked state check; deletions only when ahead=0 and has upstream.
 
                 # Resolve upstream
-                $upstream = $branchMap[$branch]
+                $meta = $branchMetadata[$branch]
+                $upstream = $meta.Upstream
                 if (-not $upstream) {
                     Write-Host "  ❌ No remote tracking branch" -ForegroundColor Red
                     continue
                 }
 
-                # Ensure remote ref exists
-                git rev-parse --verify --quiet "refs/remotes/$upstream" *> $null
-                if ($LASTEXITCODE -ne 0) {
+                $trackInfo = $meta.Track
+                if ($trackInfo -match '\[gone\]') {
                     Write-Host "  ❌ Remote branch does not exist: $upstream" -ForegroundColor Red
                     continue
                 }
 
-                # ahead/behind
-                $counts = (git rev-list --left-right --count "$branch...$upstream" 2>$null).Trim() -split '\s+'
-                $ahead = [int]$counts[0]
-                $behind = [int]$counts[1]
+                $ahead = 0
+                $behind = 0
+                if ($trackInfo) {
+                    if ($trackInfo -match 'ahead\s+(\d+)') { $ahead = [int]$matches[1] }
+                    if ($trackInfo -match 'behind\s+(\d+)') { $behind = [int]$matches[1] }
+                }
                 Write-Host "  Remote: $upstream" -ForegroundColor DarkGray
                 Write-Host "  Status: Ahead $ahead, Behind $behind" -ForegroundColor DarkGray
 
@@ -417,8 +483,8 @@ function Optimize-GitRepository {
 
                 # Prefer 'git maintenance' if available
                 $ranMaintenance = $false
-                git help maintenance 2>$null
-                if ($LASTEXITCODE -eq 0) {
+                git maintenance run -h *> $null
+                if ($LASTEXITCODE -in 0, 129) {
                     if ($PSCmdlet.ShouldProcess($Path, 'git maintenance run')) {
                         git maintenance run 2>$null
                         if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Maintenance completed" -ForegroundColor Green; $ranMaintenance = $true }
@@ -455,8 +521,8 @@ function Optimize-GitRepository {
                 Write-Host "`n💾 Repository maintenance would be performed (skipped in dry run)" -ForegroundColor Yellow
             }
 
-            # Get final repo size (only if not dry run)
-            if (-not $IsDryRun) {
+            # Get final repo size (only if not dry run and metrics requested)
+            if (-not $IsDryRun -and $CollectSizeMetrics -and $initialSize -ne $null) {
                 $finalSize = Get-RepoSize -Path $Path
                 $sizeReduction = [long]($initialSize - $finalSize)
 
@@ -526,6 +592,76 @@ function Optimize-GitRepository {
     else {
         if ($PSCmdlet.ShouldProcess($RepoPath, 'Process repository')) {
             Process-SingleRepo -Path $RepoPath -IsDryRun $DryRun
+        }
+    }
+}
+
+function Get-GitRepositoriesSummary {
+    [CmdletBinding()]
+    [Alias('gitStandup')]
+    param(
+        [string]$Path = ".",
+        [int]$DaysBack,
+        [switch]$Fetch
+    )
+
+    if (-not $DaysBack) {
+        $today = (Get-Date).DayOfWeek
+        if ($today -eq 'Monday') {
+            $DaysBack = 3
+        }
+        else {
+            $DaysBack = 1
+        }
+    }
+
+    $since = (Get-Date).AddDays(-$DaysBack)
+
+    function Get-GitSummary($repoPath, $since, $doFetch) {
+        Push-Location $repoPath
+
+        if ($doFetch) {
+            Write-Verbose "Fetching updates for $repoPath"
+            git fetch --all > $null 2>&1
+        }
+
+        $output = git log --since=$since.ToString("yyyy-MM-dd") --pretty=format:"%an|%ad|%h %s" --date=short
+
+        if (-not [string]::IsNullOrWhiteSpace($output)) {
+            Write-Host "Repository: $repoPath" -ForegroundColor Cyan
+
+            $commits = $output -split "`n" | ForEach-Object {
+                $parts = $_ -split "\|", 3
+                [PSCustomObject]@{
+                    Author = $parts[0]
+                    Date   = $parts[1]
+                    Commit = $parts[2]
+                }
+            }
+
+            $commits | Group-Object Author | ForEach-Object {
+                $authorGroup = $_
+                $count = $authorGroup.Count
+                Write-Host "  Author: $($authorGroup.Name) ($count commits)" -ForegroundColor Yellow
+
+                $authorGroup.Group | Group-Object Date | Sort-Object Name | ForEach-Object {
+                    Write-Host "    Date: $($_.Name)" -ForegroundColor Green
+                    $_.Group | ForEach-Object { "      $($_.Commit)" }
+                }
+                Write-Host
+            }
+        }
+
+        Pop-Location
+    }
+
+    if (Test-Path (Join-Path $Path ".git")) {
+        Get-GitSummary -repoPath $Path -since $since -doFetch:$Fetch
+    }
+    else {
+        $repos = Get-ChildItem -Path $Path -Directory -Recurse -Force | Where-Object { Test-Path (Join-Path $_.FullName ".git") }
+        foreach ($repo in $repos) {
+            Get-GitSummary -repoPath $repo.FullName -since $since -doFetch:$Fetch
         }
     }
 }

@@ -112,18 +112,18 @@ try {
     }
 
     # AI helper basic checks
-    if (Get-Command Ask-ChatGpt -ErrorAction SilentlyContinue) {
-        Test-Case 'Ask-ChatGpt handles missing key' { $env:OPENAI_API_KEY=$null; Ask-ChatGpt -Args @('ping') -ErrorAction SilentlyContinue }
+    if (Get-Command Invoke-ChatGpt -ErrorAction SilentlyContinue) {
+        Test-Case 'Invoke-ChatGpt handles missing key' { $env:OPENAI_API_KEY=$null; Invoke-ChatGpt -Args @('ping') -ErrorAction SilentlyContinue }
     }
-    Write-Host '[SKIP] Configure-AI is interactive' -ForegroundColor Yellow
+    Write-Host '[SKIP] Set-AIConfiguration is interactive' -ForegroundColor Yellow
 
     # Azure helpers
     Test-Case 'New-MenuItem returns typed object' {
         $m = New-MenuItem 'n' 'v'
         if ($null -eq $m -or $m.Name -ne 'n' -or $m.Value -ne 'v') { throw 'New-MenuItem failed' }
     }
-    Write-Host '[SKIP] Switch-Azure-Subscription/Login-ACR require az/docker and UI' -ForegroundColor Yellow
-    Write-Host '[SKIP] Create-Network-Access-Exceptions-For-Resources downloads and runs remote script' -ForegroundColor Yellow
+    Write-Host '[SKIP] Switch-AzureSubscription/Connect-AcrRegistry require az/docker and UI' -ForegroundColor Yellow
+    Write-Host '[SKIP] New-NetworkAccessExceptionForResources downloads and runs remote script' -ForegroundColor Yellow
 
     # Kubernetes helpers
     Write-Host '[SKIP] Select-KubeContext/Select-KubeNamespace require kubectl and fzf' -ForegroundColor Yellow

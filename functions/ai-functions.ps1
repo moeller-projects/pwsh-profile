@@ -1,5 +1,5 @@
 # ai-functions.ps1
-function Configure-AI {
+function Set-AIConfiguration {
     [CmdletBinding()]
     param()
     Write-Host "Configuring AI settings" -ForegroundColor Cyan
@@ -31,7 +31,7 @@ function Configure-AI {
     Write-Host "AI provider/model configured for current user." -ForegroundColor Green
 }
 
-function Ask-ChatGpt {
+function Invoke-ChatGpt {
     [CmdletBinding()]
     [Alias("ask")]
     param (
@@ -47,7 +47,7 @@ function Ask-ChatGpt {
         }
     }
     if (-not $env:OPENAI_API_KEY) {
-        Write-Error "Error: OPENAI_API_KEY not available. Use Configure-AI to set it."
+        Write-Error "Error: OPENAI_API_KEY not available. Use Set-AIConfiguration to set it."
         return
     }
 

@@ -86,7 +86,7 @@ if (Test-IsInteractive -eq $true) {
     try {
         $earlyChoice = $Env:PWSH_PROMPT
         switch ($earlyChoice) {
-            'plain'   { }
+            'plain' { }
             'starship' {
                 if (Get-Command starship -ErrorAction SilentlyContinue) {
                     $init = starship init powershell | Out-String
@@ -108,7 +108,8 @@ if (Test-IsInteractive -eq $true) {
                 }
             }
         }
-    } catch { }
+    }
+    catch { }
 
     # Temporary prompt only if theme not yet available
     if (-not $global:ProfilePromptInitializedEarly) {
@@ -165,7 +166,8 @@ if (Test-IsInteractive -eq $true) {
             foreach ($handler in $keyHandlers) {
                 if ($handler.ContainsKey('Key')) {
                     Set-PSReadLineKeyHandler -Key $handler.Key -Function $handler.Function
-                } elseif ($handler.ContainsKey('Chord')) {
+                }
+                elseif ($handler.ContainsKey('Chord')) {
                     Set-PSReadLineKeyHandler -Chord $handler.Chord -Function $handler.Function
                 }
             }
@@ -178,7 +180,8 @@ if (Test-IsInteractive -eq $true) {
             Set-PSReadLineOption -MaximumHistoryCount 10000
             Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
         }
-    } catch { }
+    }
+    catch { }
 
     # Set initial window title
     $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
@@ -196,14 +199,14 @@ if (Test-IsInteractive -eq $true) {
                 # Import our functions via module for autoload
                 try { Import-Module PwshProfile -ErrorAction Stop } catch { Write-Verbose ("PwshProfile import failed: {0}" -f $_.Exception.Message) }
 
-                
+
                 # Load optional modules (PSMenu, etc.) and completions if enabled
                 if (Get-Command Import-RequiredModules -ErrorAction SilentlyContinue) {
                     Import-RequiredModules
                 }
 
                 # EDITOR setup
-                $EDITOR = foreach ($cmd in 'nvim','pvim','vim','vi','code','notepad++','sublime_text') { if (Get-Command $cmd -EA SilentlyContinue) { $cmd; break } }
+                $EDITOR = foreach ($cmd in 'nvim', 'pvim', 'vim', 'vi', 'code', 'notepad++', 'sublime_text') { if (Get-Command $cmd -EA SilentlyContinue) { $cmd; break } }
                 if (-not $EDITOR) { $EDITOR = 'notepad' }
                 Set-Alias -Name vim -Value $EDITOR
                 Export-ModuleMember -Alias vim
@@ -237,13 +240,14 @@ if (Test-IsInteractive -eq $true) {
                             [System.IO.File]::ReadAllLines($completion_file) | Sort-Object | ForEach-Object {
                                 [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_)
                             }
-                        } finally {
+                        }
+                        finally {
                             Remove-Item -ErrorAction SilentlyContinue $completion_file
                             Remove-Item Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL -ErrorAction SilentlyContinue
                         }
                     }
                 }
-                
+
                 # zoxide and git alias completer
                 if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) { Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force }
                 if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force }
@@ -285,14 +289,17 @@ if (Test-IsInteractive -eq $true) {
             try {
                 $adminSuffix = if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { " [ADMIN]" } else { "" }
                 $Host.UI.RawUI.WindowTitle = "PowerShell {0}{1} — Ready in {2} ms" -f $PSVersionTable.PSVersion.ToString(), $adminSuffix, $elapsedMs
-            } catch { }
+            }
+            catch { }
 
             # Always print a concise confirmation when the profile is fully loaded
             # Intentionally uses Write-Host for interactive UX per repo guidelines
             Write-Host ("Profile fully loaded in {0} ms" -f $elapsedMs)
-        } catch {
+        }
+        catch {
             Write-Verbose ("Deferred init error: {0}" -f $_.Exception.Message)
-        } finally {
+        }
+        finally {
             Unregister-Event -SourceIdentifier PowerShell.OnIdle -ErrorAction SilentlyContinue
             # Restore default prompt only if we used the temporary loading prompt
             try {
@@ -300,14 +307,15 @@ if (Test-IsInteractive -eq $true) {
                     Remove-Item Function:prompt -ErrorAction SilentlyContinue
                     $global:ProfileLoadingPromptActive = $false
                 }
-            } catch { }
+            }
+            catch { }
         }
     } | Out-Null
 }
 
 # --- Always available utility functions / aliases (fast and core to profile management) ---
 # These are kept outside the deferred block because they are fundamental profile management tools and are fast to load.
-function Reload-Profile { & $profile }
+function Invoke-ProfileReload { & $profile }
 function Edit-Profile { vim $PROFILE }
 Set-Alias -Name ep -Value Edit-Profile
 function winutil { irm https://christitus.com/win | iex }
@@ -330,12 +338,6 @@ function admin {
 # goToParent, goToParent2Levels, goToHome must be defined *here* or *globally available* for these aliases to work.
 Set-Alias -Name c -Value Clear-Host
 Set-Alias -Name ls -Value Get-ChildItem
-function goParent { Set-Location .. }
-function goToParent2Levels { Set-Location ../.. }
-function goToHome { Set-Location ~ }
-Set-Alias -Name .. -Value goParent
-Set-Alias -Name ... -Value goToParent2Levels
-Set-Alias -Name ~ -Value goToHome
 
 
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."
