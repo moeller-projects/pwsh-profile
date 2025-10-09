@@ -665,3 +665,33 @@ function Get-GitRepositoriesSummary {
         }
     }
 }
+
+function Invoke-AiCommit {
+    [CmdletBinding()]
+    [Alias('aicommit')]
+    param(
+        [Parameter(Position = 0, Mandatory = $false)]
+        [string]$Context
+    )
+
+    $staged = git diff --cached --name-only
+
+    if (-not $staged) {
+        Write-Host "No staged changes found. Launching git add -i (interactive staging)..." -ForegroundColor Yellow
+        git add -i
+
+        $staged = git diff --cached --name-only
+
+        if (-not $staged) {
+            Write-Warning "Still no staged changes. Aborting commit."
+            return
+        }
+    }
+
+    if ($Context) {
+        lumen draft --context "$Context" | git commit -F -
+    }
+    else {
+        lumen draft | git commit -F -
+    }
+}
