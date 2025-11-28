@@ -2,7 +2,7 @@ function Import-RequiredModules {
     [CmdletBinding()]
     param()
 
-    $baseModules = @('PSMenu', 'InteractiveMenu', 'PSReadLine', 'CompletionPredictor')
+    $baseModules = @('PSMenu', 'InteractiveMenu', 'PSReadLine', 'CompletionPredictor', 'ImportDotEnv')
     $optionalModules = @('Terminal-Icons', 'PSFzf')
     $modulesToImport = $baseModules + (@() + (if ($env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1') { $optionalModules } else { @() }))
     $availableModules = Get-Module -ListAvailable | Select-Object -ExpandProperty Name -Unique

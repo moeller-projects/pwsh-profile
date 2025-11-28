@@ -339,5 +339,4 @@ function admin {
 Set-Alias -Name c -Value Clear-Host
 Set-Alias -Name ls -Value Get-ChildItem
 
-
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."

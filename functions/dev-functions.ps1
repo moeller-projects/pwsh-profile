@@ -207,11 +207,39 @@ function uptime {
     }
 }
 
+function Use-Env {
+    <#
+    .SYNOPSIS
+    Loads environment variables from a .env file into the PowerShell session.
+    .DESCRIPTION
+    This function reads a .env file in the current directory and sets environment variables in the PowerShell session. It supports comments and blank lines.
+    .EXAMPLE
+    Use-Env
+    Loads environment variables from the .env file in the current directory.
+    .NOTES
+    This function is designed to be used in PowerShell scripts to manage environment variables easily.
+    #>
+    if (Test-Path .env) {
+        $envLines = Get-Content .env
+        foreach ($line in $envLines) {
+            if (![string]::IsNullOrWhiteSpace($line) -and $line -notmatch '^\s*#') {
+                if ($line -match '^\s*([^=]+)\s*=(.*)$') {
+                    $name = $matches[1].Trim()
+                    $value = $matches[2].Trim()
+                    Set-Item -Path "env:$name" -Value $value
+                    # Write-Verbose "Set $name=$value"
+                }
+            }
+        }
+        Set-Item -Path 'env:APP_ENV' -Value 'DEV'
+    }
+}
+
 # Aliases moved to the end of the profile script for the main session.
 # If these functions were slow, their aliases wouldn't be available immediately.
 # These aliases will be loaded into the global scope by the main profile script.
 # Set-Alias -Name c -Value Clear-Host
 # Set-Alias -Name ls -Value Get-ChildItem
-# Set-Alias -Name .. -Value goToParent
-# Set-Alias -Name ... -Value goToParent2Levels
-# Set-Alias -Name ~ -Value goToHome
+Set-Alias -Name .. -Value goToParent
+Set-Alias -Name ... -Value goToParent2Levels
+Set-Alias -Name ~ -Value goToHome

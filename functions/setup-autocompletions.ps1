@@ -21,5 +21,17 @@ function Initialize-Completion {
         Write-Verbose "Initializing mise completions..."
         mise activate pwsh | Out-String | Invoke-Expression
     }
+
+    if (Get-Command -Name kiro -ErrorAction SilentlyContinue) {
+        Write-Verbose "Initializing kiro completions..."
+        kiro --locate-shell-integration-path pwsh | Out-String | Invoke-Expression
+    }
+
+    if (Get-Command -Name 'Import-DotEnv' -ErrorAction SilentlyContinue) {
+        Write-Verbose "Initializing ImportDotEnv..."
+        Import-DotEnv
+        Enable-ImportDotEnvCdIntegration
+    }
+
     Write-Verbose "All external completions initialized."
 }

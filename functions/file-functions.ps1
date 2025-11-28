@@ -423,3 +423,22 @@ function Set-LocationHome {
     param()
     Set-Location ~
 }
+
+function Invoke-Eza {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+    eza --icons=always @Args
+}
+
+function Invoke-EzaLs {
+    [CmdletBinding()]
+    [Alias('lss')]
+    param (
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+    Invoke-Eza -Args '-lh --git --icons --group-directories-first'
+}
