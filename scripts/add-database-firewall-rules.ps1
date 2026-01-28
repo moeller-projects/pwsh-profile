@@ -3,21 +3,97 @@ param (
     [string]$RulePrefix = "lukas-at-home",
     [string]$IpAddress = $null,
 
-    # New: configurable NSG settings instead of magic numbers
+    # NSG config
     [int]$NsgRulePriority = 1010,
-    [string[]]$NsgDestinationPorts = @('*')  # e.g. @('1433','3389') if you want to restrict
+    [ValidateSet("FullAccess", "SqlOnly", "CustomPorts")]
+    [string]$NsgMode = "FullAccess",
+    [string[]]$NsgDestinationPorts = @('*'),  # Used when NsgMode = CustomPorts
+
+    # Resource selection
+    [switch]$OnlySql,
+    [switch]$OnlyVm,
+    [switch]$OnlyMongo,
+
+    # Output verbosity
+    [switch]$Quiet,
+
+    # Resource configuration file
+    [string]$ConfigPath,
+    [switch]$ShowConfigPath
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ---------------------- Helper functions ----------------------
+
+function Write-Info {
+    param([string]$Message)
+    if (-not $Quiet) {
+        Write-Output $Message
+    }
+}
 
 function Test-IPv4Address {
     param (
         [Parameter(Mandatory)]
         [string]$Address
     )
-
-    # Simple IPv4 pattern (doesn't validate 0–255, but enough to catch obvious junk)
+    # Simple IPv4 pattern (doesn't validate 0–255, but catches obvious junk)
     return $Address -match '^(?:\d{1,3}\.){3}\d{1,3}$'
+}
+
+function Get-DefaultConfigPath {
+    # Default resource config path in AppData
+    $base = $env:APPDATA
+    if (-not $base) {
+        $base = [Environment]::GetFolderPath('ApplicationData')
+    }
+
+    if (-not $base) {
+        # Fallback: current directory
+        return (Join-Path -Path (Get-Location) -ChildPath 'open-access-resources.yaml')
+    }
+
+    $folder = Join-Path -Path $base -ChildPath 'OpenAccessFirewall'
+    if (-not (Test-Path $folder)) {
+        New-Item -Path $folder -ItemType Directory -Force | Out-Null
+    }
+
+    return (Join-Path -Path $folder -ChildPath 'resources.yaml')
+}
+
+function Load-ResourcesFromConfig {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        Write-Warning "Resource config not found at '$Path'."
+        return $null
+    }
+
+    $content = Get-Content -Raw -Path $Path -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($content)) {
+        Write-Warning "Resource config at '$Path' is empty."
+        return $null
+    }
+
+    $ext = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+    $resources = $null
+
+    switch ($ext) {
+        ".json" {
+            $resources = $content | ConvertFrom-Json
+        }
+        ".yml" { $resources = $content | ConvertFrom-Yaml }
+        ".yaml" { $resources = $content | ConvertFrom-Yaml }
+        default {
+            Write-Warning "Unknown config extension '$ext'. Expected .json, .yml, or .yaml."
+            return $null
+        }
+    }
+
+    return $resources
 }
 
 function Remove-SQLFirewallRules {
@@ -48,7 +124,7 @@ function Remove-SQLFirewallRules {
                     throw "az sql server firewall-rule delete for rule '$rule' failed with exit code $LASTEXITCODE."
                 }
 
-                Write-Output "Deleted existing SQL firewall rule: $rule"
+                Write-Info "Deleted existing SQL firewall rule: $rule"
             }
         }
     }
@@ -85,7 +161,7 @@ function Remove-NSGRules {
                     throw "az network nsg rule delete for rule '$rule' failed with exit code $LASTEXITCODE."
                 }
 
-                Write-Output "Deleted existing NSG rule: $rule"
+                Write-Info "Deleted existing NSG rule: $rule"
             }
         }
     }
@@ -102,7 +178,12 @@ function Manage-FirewallRules {
         [string]$rulePrefix
     )
 
-    # Always try to clean up older rules with the same prefix
+    $result = [pscustomobject]@{
+        Status   = 'Unknown'
+        RuleName = $null
+        Error    = $null
+    }
+
     Remove-SQLFirewallRules -serverName $serverName -resourceGroup $resourceGroup -rulePrefix $rulePrefix
 
     try {
@@ -119,11 +200,17 @@ function Manage-FirewallRules {
             throw "az sql server firewall-rule create failed with exit code $LASTEXITCODE."
         }
 
-        Write-Output "Created new firewall rule '$firewallRuleName' for SQL server $serverName."
+        $result.Status = 'Success'
+        $result.RuleName = $firewallRuleName
+        Write-Info "Created new firewall rule '$firewallRuleName' for SQL server $serverName."
     }
     catch {
+        $result.Status = 'Failed'
+        $result.Error = $_.Exception.Message
         Write-Error "Failed to create firewall rule for SQL server $serverName. $_"
     }
+
+    return $result
 }
 
 function Manage-NSGRules {
@@ -131,10 +218,33 @@ function Manage-NSGRules {
         [string]$vmName,
         [string]$resourceGroup,
         [string]$currentIp,
-        [string]$rulePrefix
+        [string]$rulePrefix,
+        [string]$nsgMode,
+        [string[]]$destinationPorts
     )
 
+    $result = [pscustomobject]@{
+        Status    = 'Unknown'
+        RuleName  = $null
+        PortsUsed = $null
+        Error     = $null
+        Reason    = $null
+    }
+
     try {
+        # Determine effective ports based on mode
+        switch ($nsgMode) {
+            "FullAccess" { $effectivePorts = @('*') }
+            "SqlOnly" { $effectivePorts = @('1433') }
+            "CustomPorts" {
+                if (-not $destinationPorts -or $destinationPorts.Count -eq 0) {
+                    throw "NsgMode 'CustomPorts' requires -NsgDestinationPorts to be specified."
+                }
+                $effectivePorts = $destinationPorts
+            }
+            default { $effectivePorts = $destinationPorts }
+        }
+
         # Get NIC ID for VM
         $nicId = az vm show `
             --resource-group $resourceGroup `
@@ -146,8 +256,10 @@ function Manage-NSGRules {
         }
 
         if (-not $nicId) {
-            Write-Output "No NIC found for VM $vmName in resource group $resourceGroup."
-            return
+            $result.Status = 'Skipped'
+            $result.Reason = "No NIC found for VM."
+            Write-Info "No NIC found for VM $vmName in resource group $resourceGroup."
+            return $result
         }
 
         # Try NSG on NIC
@@ -160,7 +272,7 @@ function Manage-NSGRules {
         }
 
         if (-not $nsgId) {
-            Write-Output "No NSG found for NIC of VM $vmName. Checking for NSG on the subnet..."
+            Write-Info "No NSG found for NIC of VM $vmName. Checking for NSG on the subnet..."
 
             $subnetId = az network nic show `
                 --ids $nicId `
@@ -181,8 +293,10 @@ function Manage-NSGRules {
             }
 
             if (-not $nsgId) {
-                Write-Output "No NSG found on the subnet for VM $vmName in resource group $resourceGroup."
-                return
+                $result.Status = 'Skipped'
+                $result.Reason = "No NSG on NIC or subnet."
+                Write-Info "No NSG found on the subnet for VM $vmName in resource group $resourceGroup."
+                return $result
             }
         }
 
@@ -191,10 +305,8 @@ function Manage-NSGRules {
         $nsgResourceGroup = $nsgParts[4]
         $nsgName = $nsgParts[-1]
 
-        # Clean old rules for that NSG/prefix
         Remove-NSGRules -nsgName $nsgName -resourceGroup $nsgResourceGroup -rulePrefix $rulePrefix
 
-        # Create new NSG rule
         $nsgRuleName = "$rulePrefix-$( Get-Date -Format yyyyMMdd-HHmmss )"
 
         az network nsg rule create `
@@ -203,7 +315,7 @@ function Manage-NSGRules {
             --name $nsgRuleName `
             --priority $NsgRulePriority `
             --source-address-prefixes $currentIp `
-            --destination-port-ranges $NsgDestinationPorts `
+            --destination-port-ranges $effectivePorts `
             --access Allow `
             --protocol Tcp `
             --direction Inbound | Out-Null
@@ -212,14 +324,22 @@ function Manage-NSGRules {
             throw "az network nsg rule create failed with exit code $LASTEXITCODE."
         }
 
-        Write-Output "Created new NSG rule '$nsgRuleName' for VM $vmName, allowing ports: $($NsgDestinationPorts -join ', ')."
+        $result.Status = 'Success'
+        $result.RuleName = $nsgRuleName
+        $result.PortsUsed = $effectivePorts -join ','
+        Write-Info "Created new NSG rule '$nsgRuleName' for VM $vmName, allowing ports: $($effectivePorts -join ', ')."
     }
     catch {
+        $result.Status = 'Failed'
+        $result.Error = $_.Exception.Message
         Write-Error "Failed to manage NSG rules for VM $vmName. $_"
     }
+
+    return $result
 }
 
-# Determine the IP address to use (with validation and error handling)
+# ---------------------- IP resolution ----------------------
+
 try {
     if ([string]::IsNullOrWhiteSpace($IpAddress)) {
         $response = Invoke-WebRequest https://ipv4.icanhazip.com -UseBasicParsing
@@ -240,16 +360,78 @@ if (-not (Test-IPv4Address -Address $resolvedIp)) {
 }
 
 $currentIp = $resolvedIp
-Write-Output "Using IP Address: $currentIp"
+Write-Info "Using IP Address: $currentIp"
 
-# Resource definitions
-$resources = @(
-    @{ Type = "MongoDB";  SubscriptionId = $null; },
-    @{ Type = "VM";       SubscriptionId = "f6f76124-3462-4477-9ad6-7c2890bdfc90"; Name = "intg-sql-vm-WS2019G1";     ResourceGroup = "INTG-LEGACY-DB" },
-    @{ Type = "VM";       SubscriptionId = "a09a01c4-a000-49b5-962b-f32b357948a5"; Name = "prod-sql-vm";              ResourceGroup = "aveato-legacy-databases" },
-    @{ Type = "SQLServer";SubscriptionId = "dfd2fba1-b1b9-47c5-902b-295b5e3f83a1"; Name = "intg-database-sql";        ResourceGroup = "intg" },
-    @{ Type = "SQLServer";SubscriptionId = "07b4098b-f62d-4f89-84a2-2f73bbae0ab4"; Name = "prod-laekkerai-sqlserver"; ResourceGroup = "Databases" }
-)
+# ---------------------- Resource configuration ----------------------
+
+# Determine config path (default in AppData if not provided)
+$defaultConfigPath = Get-DefaultConfigPath
+if (-not $ConfigPath) {
+    $ConfigPath = $defaultConfigPath
+}
+
+if ($ShowConfigPath) {
+    Write-Output "Resource config path: $ConfigPath"
+
+    if (Test-Path $ConfigPath) {
+        $content = Get-Content -Raw -Path $ConfigPath -ErrorAction SilentlyContinue
+        if ([string]::IsNullOrWhiteSpace($content)) {
+            Write-Output "Status: File exists but is empty."
+        }
+        else {
+            Write-Output "Status: File exists and is non-empty."
+        }
+    }
+    else {
+        Write-Output "Status: File does not exist."
+    }
+
+    return
+}
+
+# Built-in default resources (used if config is missing/empty)
+$defaultResources = @()
+
+$resources = $null
+$configResources = Load-ResourcesFromConfig -Path $ConfigPath
+
+if ($configResources) {
+    # Ensure we always have an array
+    if ($configResources -isnot [System.Collections.IEnumerable] -or
+        $configResources -is [string]) {
+        $resources = @($configResources)
+    }
+    else {
+        $resources = @($configResources)
+    }
+
+    Write-Info "Loaded $($resources.Count) resource(s) from config '$ConfigPath'."
+}
+else {
+    $resources = $defaultResources
+    Write-Info "Using built-in default resource list."
+}
+
+# Apply resource selection filters if any Only* flags are set
+$hasSelectionFilter = $OnlySql -or $OnlyVm -or $OnlyMongo
+if ($hasSelectionFilter) {
+    $resources = $resources | Where-Object {
+        ($OnlySql -and $_.Type -eq 'SQLServer') -or
+        ($OnlyVm -and $_.Type -eq 'VM') -or
+        ($OnlyMongo -and $_.Type -eq 'MongoDB')
+    }
+
+    Write-Info "Applied selection filters. Remaining resources: $($resources.Count)"
+}
+
+if (-not $resources -or $resources.Count -eq 0) {
+    Write-Warning "No resources to process after applying configuration and filters."
+    return
+}
+
+# ---------------------- Main processing & summary ----------------------
+
+$summary = @()
 
 # Group resources by SubscriptionId to minimize subscription switching
 $groupedResources = $resources | Group-Object -Property SubscriptionId
@@ -263,28 +445,75 @@ foreach ($group in $groupedResources) {
             throw "Failed to set Azure subscription '$subscriptionId' (exit code $LASTEXITCODE)."
         }
 
-        Write-Output "Switched to subscription: $subscriptionId"
+        Write-Info "Switched to subscription: $subscriptionId"
     }
 
     foreach ($resource in $group.Group) {
-        switch ($resource.Type) {
+        $resourceType = $resource.Type
+        $resName = $resource.Name
+        $resGroup = $resource.ResourceGroup
+
+        switch ($resourceType) {
+
             "SQLServer" {
-                Manage-FirewallRules -serverName $resource.Name `
-                    -resourceGroup $resource.ResourceGroup `
+                $fwResult = Manage-FirewallRules -serverName $resName `
+                    -resourceGroup $resGroup `
                     -currentIp $currentIp `
                     -rulePrefix $RulePrefix
 
-                Write-Output "Processed SQLServer: $($resource.Name)"
+                $details = if ($fwResult.Status -eq 'Success') {
+                    "Firewall rule $($fwResult.RuleName) created for IP $currentIp"
+                }
+                elseif ($fwResult.Status -eq 'Failed') {
+                    $fwResult.Error
+                }
+                else {
+                    "Status: $($fwResult.Status)"
+                }
+
+                $summary += [pscustomobject]@{
+                    Type           = "SQLServer"
+                    Name           = $resName
+                    ResourceGroup  = $resGroup
+                    SubscriptionId = $subscriptionId
+                    Status         = $fwResult.Status
+                    Details        = $details
+                }
+
+                Write-Info "Processed SQLServer: $resName"
             }
+
             "VM" {
-                Manage-NSGRules -vmName $resource.Name `
-                    -resourceGroup $resource.ResourceGroup `
+                $nsgResult = Manage-NSGRules -vmName $resName `
+                    -resourceGroup $resGroup `
                     -currentIp $currentIp `
-                    -rulePrefix $RulePrefix
+                    -rulePrefix $RulePrefix `
+                    -nsgMode $NsgMode `
+                    -destinationPorts $NsgDestinationPorts
 
-                Write-Output "Processed VM: $($resource.Name)"
+                $details = switch ($nsgResult.Status) {
+                    'Success' { "NSG rule $($nsgResult.RuleName) created (Ports: $($nsgResult.PortsUsed)) for IP $currentIp" }
+                    'Skipped' { $nsgResult.Reason }
+                    'Failed' { $nsgResult.Error }
+                    default { "Status: $($nsgResult.Status)" }
+                }
+
+                $summary += [pscustomobject]@{
+                    Type           = "VM"
+                    Name           = $resName
+                    ResourceGroup  = $resGroup
+                    SubscriptionId = $subscriptionId
+                    Status         = $nsgResult.Status
+                    Details        = $details
+                }
+
+                Write-Info "Processed VM: $resName"
             }
+
             "MongoDB" {
+                $status = 'Unknown'
+                $details = $null
+
                 try {
                     atlas accessLists create $currentIp --type ipAddress `
                         --comment $RulePrefix `
@@ -294,12 +523,31 @@ foreach ($group in $groupedResources) {
                         throw "atlas accessLists create failed with exit code $LASTEXITCODE."
                     }
 
-                    Write-Output "Processed MongoDB (Atlas access list created for $currentIp)."
+                    $status = 'Success'
+                    $details = "Atlas access list entry created for IP $currentIp"
+                    Write-Info "Processed MongoDB (Atlas access list created for $currentIp)."
                 }
                 catch {
+                    $status = 'Failed'
+                    $details = $_.Exception.Message
                     Write-Error "Failed to manage MongoDB Atlas access list for $currentIp. $_"
+                }
+
+                $summary += [pscustomobject]@{
+                    Type           = "MongoDB"
+                    Name           = $resName
+                    ResourceGroup  = $resGroup
+                    SubscriptionId = $subscriptionId
+                    Status         = $status
+                    Details        = $details
                 }
             }
         }
     }
 }
+
+# ---------------------- Final summary table ----------------------
+
+Write-Output ""
+Write-Output "===== Access Management Summary ====="
+$summary | Format-Table -AutoSize Type, Name, ResourceGroup, SubscriptionId, Status, Details
