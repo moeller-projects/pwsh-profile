@@ -19,15 +19,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Install-Module -Name PowerShellGet -Force -Scope CurrentUser -AllowClobber
+          Install-Module -Name PackageManagement -Force -Scope CurrentUser -AllowClobber
+          Import-Module PackageManagement
+          Import-Module PowerShellGet
           # Trust PSGallery for this session
           try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop } catch { }
           # Ensure NuGet provider exists
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
-          # Ensure PowerShellGet is available
-          $psGet = Get-Module -ListAvailable PowerShellGet | Sort-Object Version -Descending | Select-Object -First 1
-          if (-not $psGet) {
-            Install-Module PowerShellGet -Scope CurrentUser -Force -AllowClobber
-          }
 
       - name: Publish all scripts to PSGallery
         if: github.event_name == 'push'
