@@ -1,0 +1,56 @@
+name: Publish Scripts to PSGallery
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish all scripts in ./scripts to PSGallery
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PowerShell environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Trust PSGallery for this session
+          try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop } catch { }
+          # Ensure NuGet provider exists
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
+          # Ensure PowerShellGet is available
+          $psGet = Get-Module -ListAvailable PowerShellGet | Sort-Object Version -Descending | Select-Object -First 1
+          if (-not $psGet) {
+            Install-Module PowerShellGet -Scope CurrentUser -Force -AllowClobber
+          }
+
+      - name: Publish all scripts to PSGallery
+        if: github.event_name == 'push'
+        env:
+          PSGALLERY: ${{ secrets.PSGALLERY }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (-not $env:PSGALLERY -or [string]::IsNullOrWhiteSpace($env:PSGALLERY)) {
+            Write-Error "Secret PSGALLERY is not set. Please add a NuGet API key named 'PSGALLERY' in repository secrets."
+            exit 1
+          }
+
+          $scripts = Get-ChildItem -Path "scripts" -Filter "*.ps1" -File -Recurse
+          if (-not $scripts) {
+            Write-Host "No .ps1 scripts found under ./scripts. Skipping publish."
+            exit 0
+          }
+
+          foreach ($script in $scripts) {
+            Write-Host "Publishing $($script.FullName) to PSGallery..."
+            Publish-Script -Path $script.FullName -NuGetApiKey $env:PSGALLERY -Force
+          }
+
+          Write-Host "All scripts processed."
