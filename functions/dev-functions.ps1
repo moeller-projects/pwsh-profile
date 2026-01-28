@@ -240,6 +240,61 @@ function Use-Env {
 # These aliases will be loaded into the global scope by the main profile script.
 # Set-Alias -Name c -Value Clear-Host
 # Set-Alias -Name ls -Value Get-ChildItem
-Set-Alias -Name .. -Value goToParent
-Set-Alias -Name ... -Value goToParent2Levels
-Set-Alias -Name ~ -Value goToHome
+
+function gdev {
+    git co dev
+    git get
+}
+
+function gmain {
+    git co main
+    git get
+}
+
+function gup {
+    git get
+    git ss
+}
+
+function gsave {
+    git ss
+    git stash
+    git get
+    git ss
+}
+
+# function gdiff-save {
+#     param(
+#         [string]$Against = "origin/dev",
+#         [string]$Name
+#     )
+
+#     if (-not $Name) {
+#         $Name = (Get-Date -Format "yyyyMMdd-HHmmss")
+#     }
+
+#     $path = "D:\temp\diff-$Name.txt"
+#     git diff $Against > $path
+#     Write-Host "Diff saved to $path"
+# }
+
+Set-Alias k kubectl
+Set-Alias kctx kubectx
+
+function kcinfo {
+    kubectl cluster-info @args
+}
+
+function gsw {
+    $branch = git branch |
+        fzf |
+        ForEach-Object { $_ -replace '^[* ]+', '' }
+
+    if (-not $branch) { return }
+
+    git switch $branch
+    if ($LASTEXITCODE -eq 0) {
+        $branch | Set-Clipboard
+        Write-Host "Switched to '$branch' (copied to clipboard)."
+    }
+}

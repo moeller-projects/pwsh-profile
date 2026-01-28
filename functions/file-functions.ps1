@@ -226,7 +226,7 @@ function Get-FileTail {
         [Parameter()][Alias('f')][switch]$Follow
     )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Write-Warning "File not found: $Path"; return }
-    Get-Content -LiteralPath $Path -Tail $LineCount -Wait:$Follow
+    Get-Content -Path $Path -Tail $LineCount -Wait:$Follow
 }
 
 function Enter-NewDirectory {
