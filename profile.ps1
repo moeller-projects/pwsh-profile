@@ -248,26 +248,6 @@ if (Test-IsInteractive -eq $true) {
                     }
                 }
 
-                # zoxide and git alias completer
-                if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) { Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force }
-                if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force }
-                if (Get-Command git -ErrorAction SilentlyContinue) {
-                    Register-ArgumentCompleter -Native -CommandName git -ScriptBlock {
-                        param($wordToComplete, $commandAst, $cursorPosition)
-                        $gitAliases = $script:GitAliases
-                        if (-not $gitAliases -or $env:GIT_COMPLETIONS_REFRESH -eq '1') {
-                            $script:GitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
-                            $gitAliases = $script:GitAliases
-                        }
-                        $command = $commandAst.CommandElements[0].Value
-                        if ($command -eq 'git') {
-                            $gitAliases | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                            }
-                        }
-                    }
-                }
-
                 # External completions (volta, pixi, starship, zoxide, mise) only if enabled
                 if ($Env:PWSH_PROFILE_COMPLETIONS -ne '0') {
                     if (Get-Command Initialize-Completion -ErrorAction SilentlyContinue) {
@@ -339,4 +319,28 @@ function admin {
 Set-Alias -Name c -Value Clear-Host
 Set-Alias -Name ls -Value Get-ChildItem
 
+Set-Alias -Name g -Value git
+
+# zoxide and git alias completer
+if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) { Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force }
+if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force }
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    Register-ArgumentCompleter -Native -CommandName git -ScriptBlock {
+        param($wordToComplete, $commandAst, $cursorPosition)
+        $gitAliases = $script:GitAliases
+        if (-not $gitAliases -or $env:GIT_COMPLETIONS_REFRESH -eq '1') {
+            $script:GitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
+            $gitAliases = $script:GitAliases
+        }
+        $command = $commandAst.CommandElements[0].Value
+        if ($command -eq 'git') {
+            $gitAliases | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        }
+    }
+}
+
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."
+
+if (Get-Command git-wt -ErrorAction SilentlyContinue) { Invoke-Expression (& git-wt config shell init powershell | Out-String) }
