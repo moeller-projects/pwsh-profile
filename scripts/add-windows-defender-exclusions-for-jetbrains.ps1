@@ -5,6 +5,7 @@
 .AUTHOR moeller-projects
 .COMPANYNAME moeller-projects
 .COPYRIGHT (c) moeller-projects. All rights reserved.
+.DESCRIPTION Adds Windows Defender exclusions and WSL firewall adjustments for JetBrains IDE workflows.
 .TAGS powershell windows defender jetbrains wsl
 .LICENSEURI https://github.com/moeller-projects/pwsh-profile/blob/main/LICENSE
 .PROJECTURI https://github.com/moeller-projects/pwsh-profile

@@ -5,6 +5,7 @@
 .AUTHOR moeller-projects
 .COMPANYNAME moeller-projects
 .COPYRIGHT (c) moeller-projects. All rights reserved.
+.DESCRIPTION Adds temporary SQL, NSG, and MongoDB access for the current IP address based on repository configuration.
 .TAGS powershell azure firewall mongodb
 .LICENSEURI https://github.com/moeller-projects/pwsh-profile/blob/main/LICENSE
 .PROJECTURI https://github.com/moeller-projects/pwsh-profile

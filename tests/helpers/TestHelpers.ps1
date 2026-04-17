@@ -56,7 +56,6 @@ function Get-RepositoryScripts {
     [CmdletBinding()]
     param()
 
-    $repoRoot = Get-RepoRoot
     @(
         'setup.ps1',
         'test-loading-time.ps1',

@@ -1,11 +1,10 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot '..\helpers\TestHelpers.ps1')
-    $repoRoot = Get-RepoRoot
-    $profilePath = Join-Path $repoRoot 'profile.ps1'
 }
 
 Describe 'profile loading' {
     It 'loads without throwing in non-interactive CI contexts' {
+        $profilePath = Join-Path (Get-RepoRoot) 'profile.ps1'
         $result = Invoke-PwshTestCommand -Environment @{
             CI                       = 'true'
             PWSH_PROMPT              = 'plain'

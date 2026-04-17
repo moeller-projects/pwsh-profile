@@ -1,7 +1,6 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot '..\helpers\TestHelpers.ps1')
     Import-PwshProfileModuleForTest
-    $repoRoot = Get-RepoRoot
 }
 
 Describe 'deterministic utility commands' {

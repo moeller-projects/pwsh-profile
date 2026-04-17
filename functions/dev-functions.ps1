@@ -1,9 +1,4 @@
-$script:DefaultProjectPaths = @(
-    "D:\projects\aveato",
-    "D:\projects\laekkerai",
-    "D:\projects\private",
-    "D:\projects\research"
-)
+$script:DefaultProjectPaths = @()
 
 # Project paths configuration helpers
 function Get-ProjectConfigPath {

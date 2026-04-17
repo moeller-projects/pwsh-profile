@@ -1,7 +1,5 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot '..\helpers\TestHelpers.ps1')
-    $repoRoot = Get-RepoRoot
-    $inventory = Get-CommandInventory
     Import-PwshProfileModuleForTest
 }
 
@@ -13,6 +11,7 @@ Describe 'PwshProfile module' {
     }
 
     It 'exports the expected public functions' {
+        $inventory = Get-CommandInventory
         $expected = $inventory |
             Where-Object { $_.Kind -eq 'function' -and $_.Exported } |
             ForEach-Object Name |
