@@ -147,11 +147,12 @@ function Find-File {
 
     $root = (Resolve-Path $PWD.Path).Path
     $pattern = "*$Name*"
+    $shouldRecurse = if ($PSBoundParameters.ContainsKey('Recurse')) { $Recurse.IsPresent } else { $true }
     $depthLimit = if ($MaxDepth -ge 0) { $MaxDepth } else { [int]::MaxValue }
-    Write-Verbose "Searching for files matching '$pattern' in '$root' (Recurse: $($Recurse.IsPresent), MaxDepth: $MaxDepth)..."
+    Write-Verbose "Searching for files matching '$pattern' in '$root' (Recurse: $shouldRecurse, MaxDepth: $MaxDepth)..."
 
     try {
-        if (-not $Recurse) {
+        if (-not $shouldRecurse) {
             foreach ($file in [System.IO.Directory]::EnumerateFiles($root, $pattern, [System.IO.SearchOption]::TopDirectoryOnly)) {
                 $file
             }

@@ -8,17 +8,16 @@ class MenuOption {
 }
 
 function New-MenuItem {
-    [CmdletBinding(SupportsShouldProcess = $true)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Creates an in-memory object only.')]
+    [CmdletBinding()]
     param(
         [String]$Name,
         [String]$Value
     )
-    if ($PSCmdlet.ShouldProcess($Name, 'Create menu item')) {
-        $MenuItem = [MenuOption]::new()
-        $MenuItem.Name = $Name
-        $MenuItem.Value = $Value
-        return $MenuItem
-    }
+    $MenuItem = [MenuOption]::new()
+    $MenuItem.Name = $Name
+    $MenuItem.Value = $Value
+    return $MenuItem
 }
 
 function Switch-AzureSubscription {
