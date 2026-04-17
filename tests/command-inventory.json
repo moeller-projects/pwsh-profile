@@ -1,0 +1,1194 @@
+{
+  "entries": [
+    {
+      "kind": "function",
+      "name": "Invoke-ChatGpt",
+      "source": "functions/ai-functions.ps1",
+      "exported": true,
+      "category": "ai",
+      "dependencies": [
+        "tgpt",
+        "OPENAI_API_KEY(optional for success path)"
+      ],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Set-AIConfiguration",
+      "source": "functions/ai-functions.ps1",
+      "exported": true,
+      "category": "ai",
+      "dependencies": [
+        "Read-Host",
+        "SecretManagement(optional)"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "interactive secret configuration is not CI-runnable"
+    },
+    {
+      "kind": "function",
+      "name": "Connect-ContainerRegistry",
+      "source": "functions/azure-functions.ps1",
+      "exported": true,
+      "category": "azure",
+      "dependencies": [
+        "az",
+        "Show-Menu"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires Azure CLI and interactive menu"
+    },
+    {
+      "kind": "function",
+      "name": "New-MenuItem",
+      "source": "functions/azure-functions.ps1",
+      "exported": true,
+      "category": "azure",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "New-NetworkAccessExceptionForResources",
+      "source": "functions/azure-functions.ps1",
+      "exported": true,
+      "category": "azure",
+      "dependencies": [
+        "Invoke-WebRequest"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "downloads and executes a remote script"
+    },
+    {
+      "kind": "function",
+      "name": "Switch-AzureSubscription",
+      "source": "functions/azure-functions.ps1",
+      "exported": true,
+      "category": "azure",
+      "dependencies": [
+        "az",
+        "Show-Menu"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires Azure CLI and interactive menu"
+    },
+    {
+      "kind": "function",
+      "name": "Clear-Cache",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "windows",
+      "testType": "external-skip",
+      "skipReason": "requires Windows cache locations"
+    },
+    {
+      "kind": "function",
+      "name": "ConvertFrom-DotEnvLine",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Enter-ProjectDirectory",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-ProjectConfigPath",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-ProjectPaths",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-RecentHistory",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "PSReadLine"
+      ],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Set-ProjectPaths",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Stop-ProcessForce",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Use-Env",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "export",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "flushdns",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "Clear-DnsClientCache"
+      ],
+      "platform": "windows",
+      "testType": "external-skip",
+      "skipReason": "requires Windows DNS client cmdlets"
+    },
+    {
+      "kind": "function",
+      "name": "gdev",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "git aliases"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires local git aliases and repository state"
+    },
+    {
+      "kind": "function",
+      "name": "gmain",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "git aliases"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires local git aliases and repository state"
+    },
+    {
+      "kind": "function",
+      "name": "gsave",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "git aliases"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires local git aliases and repository state"
+    },
+    {
+      "kind": "function",
+      "name": "gsw",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "git",
+        "fzf"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires git repository and interactive selector"
+    },
+    {
+      "kind": "function",
+      "name": "gup",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "git aliases"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires local git aliases and repository state"
+    },
+    {
+      "kind": "function",
+      "name": "kcinfo",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "kubectl"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires kubectl connectivity"
+    },
+    {
+      "kind": "function",
+      "name": "pgrep",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "pkill",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "sysinfo",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [
+        "Get-ComputerInfo"
+      ],
+      "platform": "windows",
+      "testType": "external-skip",
+      "skipReason": "requires Windows system information cmdlets"
+    },
+    {
+      "kind": "function",
+      "name": "uptime",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "which",
+      "source": "functions/dev-functions.ps1",
+      "exported": true,
+      "category": "dev",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "ConvertTo-HumanReadableSize",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Enter-NewDirectory",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Expand-ZipFile",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "Compress-Archive",
+        "Expand-Archive"
+      ],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Find-File",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Find-Text",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-ClipboardText",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "Get-Clipboard"
+      ],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-FileHead",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-FileSize",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-FileTail",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-VolumeUsage",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "Get-Volume"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires platform-specific volume cmdlets"
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-Eza",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "eza"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires eza binary"
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-EzaLs",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "eza"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires eza binary"
+    },
+    {
+      "kind": "function",
+      "name": "New-EmptyFile",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Publish-FileShare",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "Invoke-WebRequest"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires network access and HiDrive service"
+    },
+    {
+      "kind": "function",
+      "name": "Publish-Hastebin",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "Invoke-RestMethod",
+        "Set-Clipboard(optional)"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires network access to hastebin"
+    },
+    {
+      "kind": "function",
+      "name": "Remove-ToRecycleBin",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Set-ClipboardText",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [
+        "Set-Clipboard"
+      ],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Set-LocationHome",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Set-LocationParent",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Set-LocationParentTwoLevels",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Update-FileText",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Watch-File",
+      "source": "functions/file-functions.ps1",
+      "exported": true,
+      "category": "file",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "waits indefinitely for file updates"
+    },
+    {
+      "kind": "function",
+      "name": "Format-FileSize",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-BranchStatus",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [
+        "git"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires git repository metadata"
+    },
+    {
+      "kind": "function",
+      "name": "Get-GitRepositoriesSummary",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [
+        "git"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires local git repositories"
+    },
+    {
+      "kind": "function",
+      "name": "Get-RepoSize",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-AiCommit",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [
+        "git",
+        "lumen"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires staged git changes and lumen"
+    },
+    {
+      "kind": "function",
+      "name": "Optimize-GitRepository",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [
+        "git"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires local git repositories and mutates repository state"
+    },
+    {
+      "kind": "function",
+      "name": "Remove-MergedGitBranches",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [
+        "git"
+      ],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Switch-GitBranch",
+      "source": "functions/git-functions.ps1",
+      "exported": true,
+      "category": "git",
+      "dependencies": [
+        "git",
+        "fzf"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires git repository and interactive selector"
+    },
+    {
+      "kind": "function",
+      "name": "Import-RequiredModules",
+      "source": "functions/import-modules.ps1",
+      "exported": true,
+      "category": "module",
+      "dependencies": [
+        "PSMenu(optional)",
+        "PSReadLine(optional)",
+        "CompletionPredictor(optional)",
+        "ImportDotEnv(optional)"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "depends on optional module installation state"
+    },
+    {
+      "kind": "function",
+      "name": "Select-KubeContext",
+      "source": "functions/kubernetes-functions.ps1",
+      "exported": true,
+      "category": "kubernetes",
+      "dependencies": [
+        "kubectl",
+        "fzf"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires kubectl and interactive selector"
+    },
+    {
+      "kind": "function",
+      "name": "Select-KubeNamespace",
+      "source": "functions/kubernetes-functions.ps1",
+      "exported": true,
+      "category": "kubernetes",
+      "dependencies": [
+        "kubectl",
+        "fzf"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires kubectl and interactive selector"
+    },
+    {
+      "kind": "function",
+      "name": "Get-PubIP",
+      "source": "functions/network-functions.ps1",
+      "exported": true,
+      "category": "network",
+      "dependencies": [
+        "Invoke-WebRequest"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "requires outbound network access"
+    },
+    {
+      "kind": "function",
+      "name": "Initialize-Completion",
+      "source": "functions/setup-autocompletions.ps1",
+      "exported": true,
+      "category": "module",
+      "dependencies": [
+        "volta(optional)",
+        "pixi(optional)",
+        "starship(optional)",
+        "zoxide(optional)",
+        "mise(optional)",
+        "kiro(optional)"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "depends on optional external completion tools"
+    },
+    {
+      "kind": "function",
+      "name": "Edit-Profile",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [
+        "vim"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "launches editor in interactive session"
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-ProfileReload",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-TrustedRemoteProfileScript",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [
+        "Invoke-RestMethod"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "downloads and executes remote script content"
+    },
+    {
+      "kind": "function",
+      "name": "Resolve-SymlinkPath",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Test-CommandAvailable",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Test-IsInteractive",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Test-IsWindowsAdministrator",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [],
+      "platform": "windows",
+      "testType": "external-skip",
+      "skipReason": "platform-specific helper used during profile load"
+    },
+    {
+      "kind": "function",
+      "name": "admin",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [
+        "wt"
+      ],
+      "platform": "windows",
+      "testType": "external-skip",
+      "skipReason": "requires Windows elevation and Windows Terminal"
+    },
+    {
+      "kind": "function",
+      "name": "winutil",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [
+        "Invoke-RestMethod"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "downloads and executes remote script content"
+    },
+    {
+      "kind": "function",
+      "name": "winutildev",
+      "source": "profile.ps1",
+      "exported": false,
+      "category": "profile",
+      "dependencies": [
+        "Invoke-RestMethod"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "downloads and executes remote script content"
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-SmokeCase",
+      "source": "scripts/Invoke-Smoketests.ps1",
+      "exported": false,
+      "category": "test",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "New-SmokeWorkspace",
+      "source": "scripts/Invoke-Smoketests.ps1",
+      "exported": false,
+      "category": "test",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Remove-SmokeWorkspace",
+      "source": "scripts/Invoke-Smoketests.ps1",
+      "exported": false,
+      "category": "test",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Write-SmokeSkip",
+      "source": "scripts/Invoke-Smoketests.ps1",
+      "exported": false,
+      "category": "test",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-DefaultConfigPath",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Load-ResourcesFromConfig",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [
+        "ConvertFrom-Yaml(optional)"
+      ],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Manage-FirewallRules",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [
+        "az"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "mutates Azure SQL firewall rules"
+    },
+    {
+      "kind": "function",
+      "name": "Manage-MongoAccessList",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [
+        "atlas"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "mutates MongoDB Atlas access lists"
+    },
+    {
+      "kind": "function",
+      "name": "Manage-NSGRules",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [
+        "az"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "mutates Azure NSG rules"
+    },
+    {
+      "kind": "function",
+      "name": "Remove-NSGRules",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [
+        "az"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "mutates Azure NSG rules"
+    },
+    {
+      "kind": "function",
+      "name": "Remove-SQLFirewallRules",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [
+        "az"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "mutates Azure SQL firewall rules"
+    },
+    {
+      "kind": "function",
+      "name": "Test-IPv4Address",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Write-Info",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "script-helper",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Ensure-SetupDirectory",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Get-SetupSourceProfilePath",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Invoke-ProfileSetup",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "New-SetupProfileSymbolicLink",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Remove-SetupExistingProfile",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "function",
+      "name": "Write-SetupLog",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null
+    },
+    {
+      "kind": "script",
+      "name": "Invoke-Smoketests.ps1",
+      "source": "scripts/Invoke-Smoketests.ps1",
+      "exported": false,
+      "category": "test",
+      "dependencies": [
+        "PwshProfile module"
+      ],
+      "platform": "all",
+      "testType": "smoke",
+      "skipReason": null,
+      "publishable": false
+    },
+    {
+      "kind": "script",
+      "name": "add-database-firewall-rules.ps1",
+      "source": "scripts/add-database-firewall-rules.ps1",
+      "exported": false,
+      "category": "azure",
+      "dependencies": [
+        "az",
+        "atlas(optional)",
+        "ConvertFrom-Yaml(optional)"
+      ],
+      "platform": "all",
+      "testType": "external-skip",
+      "skipReason": "mutates external cloud firewalls and access lists",
+      "publishable": true
+    },
+    {
+      "kind": "script",
+      "name": "add-windows-defender-exclusions-for-jetbrains.ps1",
+      "source": "scripts/add-windows-defender-exclusions-for-jetbrains.ps1",
+      "exported": false,
+      "category": "windows",
+      "dependencies": [
+        "Defender cmdlets",
+        "NetSecurity cmdlets"
+      ],
+      "platform": "windows",
+      "testType": "external-skip",
+      "skipReason": "requires Windows admin privileges and mutates Defender settings",
+      "publishable": true
+    },
+    {
+      "kind": "script",
+      "name": "setup.ps1",
+      "source": "setup.ps1",
+      "exported": false,
+      "category": "setup",
+      "dependencies": [],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null,
+      "publishable": false
+    },
+    {
+      "kind": "script",
+      "name": "test-loading-time.ps1",
+      "source": "test-loading-time.ps1",
+      "exported": false,
+      "category": "performance",
+      "dependencies": [
+        "pwsh"
+      ],
+      "platform": "all",
+      "testType": "unit",
+      "skipReason": null,
+      "publishable": false
+    }
+  ]
+}

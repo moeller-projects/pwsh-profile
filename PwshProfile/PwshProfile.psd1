@@ -1,48 +1,123 @@
 @{
-    # Script module or binary module file associated with this manifest.
     RootModule = 'PwshProfile.psm1'
-
-    # Version number of this module.
-    ModuleVersion = '0.1.0'
-
-    # Supported PSEditions
-    CompatiblePSEditions = @('Desktop','Core')
-
-    # ID used to uniquely identify this module
+    ModuleVersion = '0.2.0'
+    CompatiblePSEditions = @('Desktop', 'Core')
     GUID = 'b9d2db05-3a1b-4c0c-9b7d-0f7c2a9df0db'
-
-    # Author of this module
     Author = 'moeller-projects'
-
-    # Company or vendor of this module
     CompanyName = 'moeller-projects'
-
-    # Copyright
     Copyright = '(c) moeller-projects. All rights reserved.'
-
-    # Description of the functionality provided by this module
     Description = 'Convenience commands and profile helpers extracted from the pwsh-profile repository.'
-
-    # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '5.1'
-
-    # Functions to export from this module
-    FunctionsToExport = '*'
-
-    # Cmdlets to export from this module
+    FunctionsToExport = @(
+        'Set-AIConfiguration',
+        'Invoke-ChatGpt',
+        'New-MenuItem',
+        'Switch-AzureSubscription',
+        'Connect-ContainerRegistry',
+        'New-NetworkAccessExceptionForResources',
+        'Get-ProjectConfigPath',
+        'Get-ProjectPaths',
+        'Set-ProjectPaths',
+        'Enter-ProjectDirectory',
+        'Get-RecentHistory',
+        'Clear-Cache',
+        'pkill',
+        'pgrep',
+        'Stop-ProcessForce',
+        'sysinfo',
+        'flushdns',
+        'which',
+        'export',
+        'uptime',
+        'ConvertFrom-DotEnvLine',
+        'Use-Env',
+        'gdev',
+        'gmain',
+        'gup',
+        'gsave',
+        'kcinfo',
+        'gsw',
+        'ConvertTo-HumanReadableSize',
+        'Get-FileSize',
+        'Publish-FileShare',
+        'Watch-File',
+        'New-EmptyFile',
+        'Find-File',
+        'Expand-ZipFile',
+        'Get-FileHead',
+        'Get-FileTail',
+        'Enter-NewDirectory',
+        'Remove-ToRecycleBin',
+        'Set-ClipboardText',
+        'Get-ClipboardText',
+        'Publish-Hastebin',
+        'Find-Text',
+        'Get-VolumeUsage',
+        'Update-FileText',
+        'Set-LocationParent',
+        'Set-LocationParentTwoLevels',
+        'Set-LocationHome',
+        'Invoke-Eza',
+        'Invoke-EzaLs',
+        'Remove-MergedGitBranches',
+        'Switch-GitBranch',
+        'Get-RepoSize',
+        'Format-FileSize',
+        'Get-BranchStatus',
+        'Optimize-GitRepository',
+        'Get-GitRepositoriesSummary',
+        'Invoke-AiCommit',
+        'Import-RequiredModules',
+        'Select-KubeContext',
+        'Select-KubeNamespace',
+        'Get-PubIP',
+        'Initialize-Completion'
+    )
     CmdletsToExport = @()
-
-    # Variables to export from this module
     VariablesToExport = @()
-
-    # Aliases to export from this module
-    AliasesToExport = '*'
-
+    AliasesToExport = @(
+        'aicommit',
+        'ask',
+        'cna',
+        'cpy',
+        'df',
+        'ff',
+        'gclean',
+        'gg',
+        'gitStandup',
+        'grep',
+        'hb',
+        'head',
+        'k',
+        'k9',
+        'kctx',
+        'kubectx',
+        'kubens',
+        'lacr',
+        'lss',
+        'mkcd',
+        'nf',
+        'p',
+        'project',
+        'pst',
+        'sas',
+        'sed',
+        'sf',
+        'tail',
+        'touch',
+        'trash',
+        'unzip',
+        'wf',
+        '..',
+        '...',
+        '~'
+    )
     PrivateData = @{
         PSData = @{
+            Tags = @('powershell', 'profile', 'cli', 'module')
             ProjectUri = 'https://github.com/moeller-projects/pwsh-profile'
             LicenseUri = 'https://github.com/moeller-projects/pwsh-profile/blob/main/LICENSE'
+            ReleaseNotes = 'Hardening, test coverage, packaging metadata, and publishing workflow improvements.'
         }
     }
 }
-

@@ -1,3 +1,4 @@
+[CmdletBinding()]
 param(
     [switch]$VerboseOutput
 )
@@ -5,139 +6,235 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($VerboseOutput) { $VerbosePreference = 'Continue' }
 
-# Ensure module or functions are available
 try {
-    $repoRoot = Split-Path -Parent $PSCommandPath
-    $repoRoot = Split-Path -Parent $repoRoot
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
     $modulePath = Join-Path $repoRoot 'PwshProfile/PwshProfile.psd1'
-    if (Test-Path $modulePath) { Import-Module $modulePath -Force -ErrorAction Stop }
+    if (Test-Path -LiteralPath $modulePath) {
+        Import-Module $modulePath -Force -ErrorAction Stop
+    }
 }
 catch {
     Write-Verbose "Module import failed: $($_.Exception.Message). Proceeding with current session scope."
 }
 
-function New-TempWorkspace {
-    $temp = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("pwsh-profile-smoke-" + [System.Guid]::NewGuid()))
-    Push-Location $temp.FullName
-    return $temp
+function New-SmokeWorkspace {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+
+    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("pwsh-profile-smoke-" + [System.Guid]::NewGuid())
+    if ($PSCmdlet.ShouldProcess($tempPath, 'Create smoke test workspace')) {
+        $temp = New-Item -ItemType Directory -Path $tempPath -Force
+        Push-Location $temp.FullName
+        return $temp
+    }
 }
 
-function Remove-TempWorkspace($temp) {
+function Remove-SmokeWorkspace {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory)]$Workspace
+    )
+
     Pop-Location
-    Remove-Item -Recurse -Force -LiteralPath $temp.FullName -ErrorAction SilentlyContinue
+    if ($PSCmdlet.ShouldProcess($Workspace.FullName, 'Remove smoke test workspace')) {
+        Remove-Item -Recurse -Force -LiteralPath $Workspace.FullName -ErrorAction SilentlyContinue
+    }
 }
 
-$results = @()
-function Test-Case($Name, [scriptblock]$Body) {
+function Invoke-SmokeCase {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Body
+    )
+
     Write-Host "[RUN] $Name" -ForegroundColor Cyan
     try {
         & $Body
-        $results += [pscustomobject]@{ Name = $Name; Status = 'Pass' }
+        $script:Results.Add([pscustomobject]@{ Name = $Name; Status = 'Pass'; Error = $null }) | Out-Null
         Write-Host "[OK ] $Name" -ForegroundColor Green
     }
     catch {
-        $results += [pscustomobject]@{ Name = $Name; Status = 'Fail'; Error = $_.Exception.Message }
+        $script:Results.Add([pscustomobject]@{ Name = $Name; Status = 'Fail'; Error = $_.Exception.Message }) | Out-Null
         Write-Host "[ERR] $Name -> $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
-$ws = New-TempWorkspace
+function Write-SmokeSkip {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Reason
+    )
+
+    $script:Results.Add([pscustomobject]@{ Name = $Name; Status = 'Skip'; Error = $Reason }) | Out-Null
+    Write-Host "[SKIP] $Name -> $Reason" -ForegroundColor Yellow
+}
+
+$script:Results = [System.Collections.Generic.List[object]]::new()
+$workspace = New-SmokeWorkspace
+
 try {
-    # Navigation helpers (parent/home)
-    Test-Case 'goParent/goToParent2Levels' {
+    Invoke-SmokeCase -Name 'Set-LocationParentTwoLevels returns to workspace root' -Body {
         New-Item -ItemType Directory -Name 'p1' | Out-Null
         Push-Location 'p1'
         New-Item -ItemType Directory -Name 'p2' | Out-Null
         Push-Location 'p2'
-        goToParent2Levels
-        if ((Split-Path -Leaf (Get-Location)) -ne (Split-Path -Leaf $ws.FullName)) { throw 'Did not return to workspace root' }
+        Set-LocationParentTwoLevels
+        if ((Get-Location).Path -ne $workspace.FullName) { throw 'Did not return to workspace root' }
     }
-    Test-Case 'goToHome (non-fatal)' {
+
+    Invoke-SmokeCase -Name 'Set-LocationHome runs' -Body {
         Push-Location (Get-Location)
-        try { goToHome } catch {}
-        Pop-Location
+        try {
+            Set-LocationHome
+        }
+        finally {
+            Pop-Location
+        }
     }
 
-    # Basic file helpers
-    Test-Case 'touch creates file' { touch 'a.txt'; if (-not (Test-Path 'a.txt')) { throw 'File not created' } }
-    Test-Case 'nf creates file' { nf 'b.txt'; if (-not (Test-Path 'b.txt')) { throw 'File not created' } }
-    Test-Case 'Get-FileSize returns value' { touch 'c.txt'; (Get-FileSize -Path 'c.txt') | Out-Null }
-    Test-Case 'head/tail work on file' { '1`n2`n3' | Set-Content -Path 'd.txt'; head -Path 'd.txt' -n 1 | Out-Null; tail -Path 'd.txt' -n 1 | Out-Null }
-    Test-Case 'sed -WhatIf does not modify' { 'foo' | Set-Content 'e.txt'; sed -file 'e.txt' -find 'foo' -replace 'bar' -WhatIf; if ((Get-Content 'e.txt') -ne 'foo') { throw 'Content changed with -WhatIf' } }
-    Test-Case 'mkcd changes directory' { mkcd 'dir1'; if ((Split-Path -Leaf (Get-Location)) -ne 'dir1') { throw 'Did not cd' } }
-    Test-Case 'Find-File finds files' { touch 'findme.txt'; $res = Find-File 'findme'; if (-not $res) { throw 'No files found' } }
-    Test-Case 'grep matches regex' { 'hello world' | Set-Content 'g.txt'; (grep 'world' (Get-Location)) | Out-Null }
-    Test-Case 'trash -WhatIf guarded' { touch 'z.txt'; trash -path 'z.txt' -WhatIf }
+    Invoke-SmokeCase -Name 'New-EmptyFile creates file' -Body {
+        touch 'a.txt'
+        if (-not (Test-Path -LiteralPath 'a.txt')) { throw 'File not created' }
+    }
 
-    # Archive helpers
-    Test-Case 'unzip extracts archive' {
-        'data' | Set-Content 'u.txt'
+    Invoke-SmokeCase -Name 'Get-FileSize returns value' -Body {
+        'x' | Set-Content -LiteralPath 'c.txt'
+        if (-not (Get-FileSize -Path 'c.txt')) { throw 'Expected a file size result' }
+    }
+
+    Invoke-SmokeCase -Name 'Get-FileHead/Get-FileTail work' -Body {
+        "1`n2`n3" | Set-Content -LiteralPath 'd.txt'
+        if ((Get-FileHead -Path 'd.txt' -LineCount 1)[0] -ne '1') { throw 'Head returned wrong content' }
+        if ((Get-FileTail -Path 'd.txt' -LineCount 1)[0] -ne '3') { throw 'Tail returned wrong content' }
+    }
+
+    Invoke-SmokeCase -Name 'Update-FileText -WhatIf does not modify file' -Body {
+        'foo' | Set-Content -LiteralPath 'e.txt'
+        Update-FileText -Path 'e.txt' -Find 'foo' -Replace 'bar' -WhatIf
+        if ((Get-Content -LiteralPath 'e.txt' -Raw).Trim() -ne 'foo') { throw 'Content changed with -WhatIf' }
+    }
+
+    Invoke-SmokeCase -Name 'Enter-NewDirectory changes directory' -Body {
+        Enter-NewDirectory -Name 'dir1'
+        if ((Split-Path -Leaf (Get-Location)) -ne 'dir1') { throw 'Did not change directory' }
+    }
+
+    Invoke-SmokeCase -Name 'Find-File finds files recursively' -Body {
+        touch 'findme.txt'
+        $result = Find-File -Name 'findme' -Recurse
+        if (-not $result) { throw 'No files found' }
+    }
+
+    Invoke-SmokeCase -Name 'Find-Text matches regex' -Body {
+        'hello world' | Set-Content -LiteralPath 'g.txt'
+        if (-not (Find-Text -Pattern 'world' -Path (Get-Location).Path)) { throw 'No grep result' }
+    }
+
+    Invoke-SmokeCase -Name 'Remove-ToRecycleBin -WhatIf is guarded' -Body {
+        touch 'z.txt'
+        Remove-ToRecycleBin -Path 'z.txt' -WhatIf
+    }
+
+    Invoke-SmokeCase -Name 'Expand-ZipFile extracts archive' -Body {
+        'data' | Set-Content -LiteralPath 'u.txt'
         Compress-Archive -Path 'u.txt' -DestinationPath 'u.zip' -Force
-        unzip 'u.zip'
-        if (-not (Test-Path 'u.txt')) { throw 'Unzip did not extract' }
+        Remove-Item -LiteralPath 'u.txt'
+        Expand-ZipFile -Name 'u.zip'
+        if (-not (Test-Path -LiteralPath 'u.txt')) { throw 'Archive was not extracted' }
     }
 
-    # Dev helpers
-    Test-Case 'Get-RecentHistory runs' { Get-RecentHistory -Last 1 | Out-Null }
-    Test-Case 'which/export run' { export TEST_SMOKE '1'; which pwsh | Out-Null }
-    Test-Case 'uptime runs' { uptime }
-    Test-Case 'pgrep/pkill harmless on unknown' { pgrep 'unlikely-proc-name' -ErrorAction SilentlyContinue | Out-Null; pkill 'unlikely-proc-name' }
-    Test-Case 'Stop-ProcessForce harmless on unknown' { Stop-ProcessForce -Name 'unlikely-proc-name' }
+    Invoke-SmokeCase -Name 'Get-RecentHistory runs' -Body {
+        Get-RecentHistory -Last 1 | Out-Null
+    }
+
+    Invoke-SmokeCase -Name 'export and which run' -Body {
+        export TEST_SMOKE '1'
+        if ((Get-Item Env:TEST_SMOKE).Value -ne '1') { throw 'export did not set environment variable' }
+        which pwsh | Out-Null
+    }
+
+    Invoke-SmokeCase -Name 'uptime runs' -Body {
+        uptime | Out-Null
+    }
+
+    Invoke-SmokeCase -Name 'pgrep/pkill harmless on unknown process' -Body {
+        pgrep 'unlikely-proc-name' -ErrorAction SilentlyContinue | Out-Null
+        pkill 'unlikely-proc-name'
+    }
+
+    Invoke-SmokeCase -Name 'Stop-ProcessForce -WhatIf is guarded' -Body {
+        Stop-ProcessForce -Name 'unlikely-proc-name' -WhatIf
+    }
+
     if ($IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')) {
-        Test-Case 'flushdns non-fatal' { try { flushdns } catch {} }
-        Test-Case 'sysinfo non-fatal' { try { sysinfo | Out-Null } catch {} }
-    } else {
-        Write-Host '[SKIP] Windows-only dev helpers' -ForegroundColor Yellow
+        Invoke-SmokeCase -Name 'flushdns runs on Windows' -Body { flushdns }
+        Invoke-SmokeCase -Name 'sysinfo runs on Windows' -Body { sysinfo | Out-Null }
+    }
+    else {
+        Write-SmokeSkip -Name 'Windows-only dev helpers' -Reason 'requires Windows-only cmdlets'
     }
 
-    # Git helpers (skip if not in a git repo)
     if (Get-Command git -ErrorAction SilentlyContinue) {
-        Test-Case 'gclean -WhatIf' { gclean -WhatIf }
-    } else {
-        Write-Host '[SKIP] git not found' -ForegroundColor Yellow
+        Invoke-SmokeCase -Name 'Remove-MergedGitBranches -WhatIf runs' -Body { Remove-MergedGitBranches -WhatIf }
+    }
+    else {
+        Write-SmokeSkip -Name 'Remove-MergedGitBranches' -Reason 'requires git'
     }
 
-    # df (platform dependent)
     if (Get-Command Get-Volume -ErrorAction SilentlyContinue) {
-        Test-Case 'df runs' { df | Out-Null }
-    } else {
-        Write-Host '[SKIP] Get-Volume not available' -ForegroundColor Yellow
+        Invoke-SmokeCase -Name 'Get-VolumeUsage runs' -Body { Get-VolumeUsage | Out-Null }
+    }
+    else {
+        Write-SmokeSkip -Name 'Get-VolumeUsage' -Reason 'requires Get-Volume'
     }
 
-    # Clipboard helpers (if available)
-    if (Get-Command Set-Clipboard -ErrorAction SilentlyContinue -CommandType Cmdlet) {
-        Test-Case 'cpy/pst run' { cpy 'clip'; pst | Out-Null }
-    } else {
-        Write-Host '[SKIP] Clipboard cmdlets not available' -ForegroundColor Yellow
+    if ((Get-Command Set-Clipboard -ErrorAction SilentlyContinue) -and (Get-Command Get-Clipboard -ErrorAction SilentlyContinue)) {
+        Invoke-SmokeCase -Name 'Set-ClipboardText/Get-ClipboardText run' -Body {
+            Set-ClipboardText -Text 'clip'
+            Get-ClipboardText | Out-Null
+        }
+    }
+    else {
+        Write-SmokeSkip -Name 'Clipboard helpers' -Reason 'requires clipboard cmdlets'
     }
 
-    # AI helper basic checks
-    if (Get-Command Invoke-ChatGpt -ErrorAction SilentlyContinue) {
-        Test-Case 'Invoke-ChatGpt handles missing key' { $env:OPENAI_API_KEY=$null; Invoke-ChatGpt -Args @('ping') -ErrorAction SilentlyContinue }
+    Invoke-SmokeCase -Name 'Invoke-ChatGpt handles missing key' -Body {
+        $previousKey = $env:OPENAI_API_KEY
+        try {
+            $env:OPENAI_API_KEY = $null
+            Invoke-ChatGpt -PromptArguments @('ping') -ErrorAction SilentlyContinue
+        }
+        finally {
+            $env:OPENAI_API_KEY = $previousKey
+        }
     }
-    Write-Host '[SKIP] Set-AIConfiguration is interactive' -ForegroundColor Yellow
 
-    # Azure helpers
-    Test-Case 'New-MenuItem returns typed object' {
-        $m = New-MenuItem 'n' 'v'
-        if ($null -eq $m -or $m.Name -ne 'n' -or $m.Value -ne 'v') { throw 'New-MenuItem failed' }
+    Invoke-SmokeCase -Name 'New-MenuItem returns typed object' -Body {
+        $menuItem = New-MenuItem 'n' 'v'
+        if ($null -eq $menuItem -or $menuItem.Name -ne 'n' -or $menuItem.Value -ne 'v') { throw 'New-MenuItem failed' }
     }
-    Write-Host '[SKIP] Switch-AzureSubscription/Connect-AcrRegistry require az/docker and UI' -ForegroundColor Yellow
-    Write-Host '[SKIP] New-NetworkAccessExceptionForResources downloads and runs remote script' -ForegroundColor Yellow
 
-    # Kubernetes helpers
-    Write-Host '[SKIP] Select-KubeContext/Select-KubeNamespace require kubectl and fzf' -ForegroundColor Yellow
+    Write-SmokeSkip -Name 'Switch-AzureSubscription/Connect-ContainerRegistry' -Reason 'requires az and Show-Menu'
+    Write-SmokeSkip -Name 'New-NetworkAccessExceptionForResources' -Reason 'downloads and runs a remote script'
+    Write-SmokeSkip -Name 'Select-KubeContext/Select-KubeNamespace' -Reason 'requires kubectl and fzf'
+    Write-SmokeSkip -Name 'Get-PubIP' -Reason 'requires a network call'
+    Write-SmokeSkip -Name 'Initialize-Completion' -Reason 'depends on optional external tools'
 
-    # Network helper (external call)
-    Write-Host '[SKIP] Get-PubIP performs network call' -ForegroundColor Yellow
-
-    # Completions initializer
-    Write-Host '[SKIP] Initialize-Completion depends on external tools' -ForegroundColor Yellow
+    if ($env:PWSH_PROFILE_SMOKE_FORCE_FAILURE -eq '1') {
+        Invoke-SmokeCase -Name 'Forced failure sentinel' -Body { throw 'Forced failure sentinel triggered.' }
+    }
 }
 finally {
-    Remove-TempWorkspace $ws
+    Remove-SmokeWorkspace -Workspace $workspace
 }
 
-Write-Host "\nSummary:" -ForegroundColor DarkCyan
-$results | Sort-Object Status, Name | Format-Table -AutoSize
-if ($results | Where-Object Status -eq 'Fail') { exit 1 } else { exit 0 }
+Write-Host "`nSummary:" -ForegroundColor DarkCyan
+$script:Results | Sort-Object Status, Name | Format-Table -AutoSize | Out-String | Write-Host
+
+if ($script:Results.Where({ $_.Status -eq 'Fail' }).Count -gt 0) {
+    exit 1
+}
+
+exit 0

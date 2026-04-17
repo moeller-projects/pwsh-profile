@@ -1,6 +1,6 @@
 # ai-functions.ps1
 function Set-AIConfiguration {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param()
     Write-Host "Configuring AI settings" -ForegroundColor Cyan
     $provider = Read-Host "Enter AI Provider (e.g., openai)"
@@ -12,30 +12,32 @@ function Set-AIConfiguration {
     try { $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 
     # Prefer SecretManagement if available
-    if (Get-Command -Name Set-Secret -ErrorAction SilentlyContinue) {
-        try {
-            Set-Secret -Name OPENAI_API_KEY -Secret $apiKey -ErrorAction Stop
-            Write-Host "Stored API key in SecretManagement (name: OPENAI_API_KEY)." -ForegroundColor Green
-        }
-        catch {
-            Write-Warning "Failed to store secret via SecretManagement: $($_.Exception.Message). Falling back to user env var."
+    if ($PSCmdlet.ShouldProcess('CurrentUser', 'store AI configuration')) {
+        if (Get-Command -Name Set-Secret -ErrorAction SilentlyContinue) {
+            try {
+                Set-Secret -Name OPENAI_API_KEY -Secret $apiKey -ErrorAction Stop
+                Write-Host "Stored API key in SecretManagement (name: OPENAI_API_KEY)." -ForegroundColor Green
+            }
+            catch {
+                Write-Warning "Failed to store secret via SecretManagement: $($_.Exception.Message). Falling back to user env var."
+                [System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $apiKey, [System.EnvironmentVariableTarget]::User)
+            }
+        } else {
             [System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $apiKey, [System.EnvironmentVariableTarget]::User)
+            Write-Host "Stored API key in user environment (OPENAI_API_KEY)." -ForegroundColor Yellow
         }
-    } else {
-        [System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $apiKey, [System.EnvironmentVariableTarget]::User)
-        Write-Host "Stored API key in user environment (OPENAI_API_KEY)." -ForegroundColor Yellow
-    }
 
-    [System.Environment]::SetEnvironmentVariable('AI_PROVIDER', $provider, [System.EnvironmentVariableTarget]::User)
-    [System.Environment]::SetEnvironmentVariable('OPENAI_MODEL', $model, [System.EnvironmentVariableTarget]::User)
-    Write-Host "AI provider/model configured for current user." -ForegroundColor Green
+        [System.Environment]::SetEnvironmentVariable('AI_PROVIDER', $provider, [System.EnvironmentVariableTarget]::User)
+        [System.Environment]::SetEnvironmentVariable('OPENAI_MODEL', $model, [System.EnvironmentVariableTarget]::User)
+        Write-Host "AI provider/model configured for current user." -ForegroundColor Green
+    }
 }
 
 function Invoke-ChatGpt {
     [CmdletBinding()]
     [Alias("ask")]
     param (
-        [string[]]$Args,
+        [Alias('Args')][string[]]$PromptArguments,
         [switch]$UseShell
     )
 
@@ -50,10 +52,14 @@ function Invoke-ChatGpt {
         Write-Error "Error: OPENAI_API_KEY not available. Use Set-AIConfiguration to set it."
         return
     }
+    if (-not (Get-Command -Name tgpt -ErrorAction SilentlyContinue)) {
+        Write-Error "tgpt is not available in PATH."
+        return
+    }
 
     $tgptArgs = @()
     if ($UseShell) { $tgptArgs += '-s' }
-    $prompt = if ($Args) { ($Args -join ' ') } else { '' }
+    $prompt = if ($PromptArguments) { ($PromptArguments -join ' ') } else { '' }
     if ($prompt -ne '') { $tgptArgs += '--'; $tgptArgs += $prompt }
     Write-Verbose ("Executing AI command: tgpt {0}" -f ($tgptArgs -join ' '))
     & tgpt @tgptArgs

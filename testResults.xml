@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="19" errors="0" failures="0" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-04-17" time="14:29:35">
+  <environment platform="Linux" machine-name="runnervmeorf1" nunit-version="2.5.8.0" user-domain="" os-version="6.17.0-1010-azure" cwd="/home/runner/work/pwsh-profile/pwsh-profile" user="runner" clr-version="8.0.25" />
+  <culture-info current-culture="" current-uiculture="" />
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Success" success="True" time="5.9409" asserts="0" description="Pester">
+    <results>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Inventory.Tests.ps1" executed="True" result="Success" success="True" time="1.191" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Inventory.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="command inventory coverage" executed="True" result="Success" success="True" time="0.8647" asserts="0" description="command inventory coverage">
+            <results>
+              <test-case description="covers every tracked function definition" name="command inventory coverage.covers every tracked function definition" time="0.2011" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="covers every tracked top-level script" name="command inventory coverage.covers every tracked top-level script" time="0.0235" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="provides required metadata for every inventory entry" name="command inventory coverage.provides required metadata for every inventory entry" time="0.605" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Module.Tests.ps1" executed="True" result="Success" success="True" time="0.148" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Module.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="PwshProfile module" executed="True" result="Success" success="True" time="0.0673" asserts="0" description="PwshProfile module">
+            <results>
+              <test-case description="imports the module manifest successfully" name="PwshProfile module.imports the module manifest successfully" time="0.0134" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="exports the expected public functions" name="PwshProfile module.exports the expected public functions" time="0.0362" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="exports the expected public aliases" name="PwshProfile module.exports the expected public aliases" time="0.0123" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Profile.Tests.ps1" executed="True" result="Success" success="True" time="0.8937" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Profile.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="profile loading" executed="True" result="Success" success="True" time="0.8756" asserts="0" description="profile loading">
+            <results>
+              <test-case description="loads without throwing in non-interactive CI contexts" name="profile loading.loads without throwing in non-interactive CI contexts" time="0.871" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Scripts.Tests.ps1" executed="True" result="Success" success="True" time="2.2258" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Scripts.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="standalone scripts" executed="True" result="Success" success="True" time="2.2103" asserts="0" description="standalone scripts">
+            <results>
+              <test-case description="returns structured timing data from test-loading-time.ps1" name="standalone scripts.returns structured timing data from test-loading-time.ps1" time="0.9294" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns a non-zero exit code when the smoke harness detects a failure" name="standalone scripts.returns a non-zero exit code when the smoke harness detects a failure" time="1.2769" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Setup.Tests.ps1" executed="True" result="Success" success="True" time="0.0659" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Setup.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="setup script helpers" executed="True" result="Success" success="True" time="0.0414" asserts="0" description="setup script helpers">
+            <results>
+              <test-case description="builds the expected source profile path" name="setup script helpers.builds the expected source profile path" time="0.0039" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="supports WhatIf for setup orchestration" name="setup script helpers.supports WhatIf for setup orchestration" time="0.0353" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Utility.Tests.ps1" executed="True" result="Success" success="True" time="0.1003" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/unit/Utility.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="deterministic utility commands" executed="True" result="Success" success="True" time="0.0783" asserts="0" description="deterministic utility commands">
+            <results>
+              <test-case description="converts byte counts to human-readable sizes" name="deterministic utility commands.converts byte counts to human-readable sizes" time="0.0114" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="parses dotenv lines" name="deterministic utility commands.parses dotenv lines" time="0.0097" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="ignores comments in dotenv parsing" name="deterministic utility commands.ignores comments in dotenv parsing" time="0.005" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="does not modify files when Update-FileText runs with WhatIf" name="deterministic utility commands.does not modify files when Update-FileText runs with WhatIf" time="0.027" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="supports WhatIf for Remove-ToRecycleBin on all platforms" name="deterministic utility commands.supports WhatIf for Remove-ToRecycleBin on all platforms" time="0.0072" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns strongly-typed Azure menu items" name="deterministic utility commands.returns strongly-typed Azure menu items" time="0.0104" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="derives the expected project config path" name="deterministic utility commands.derives the expected project config path" time="0.0046" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="/home/runner/work/pwsh-profile/pwsh-profile/tests/smoke/Smoke.Tests.ps1" executed="True" result="Success" success="True" time="1.3105" asserts="0" description="/home/runner/work/pwsh-profile/pwsh-profile/tests/smoke/Smoke.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="smoke harness" executed="True" result="Success" success="True" time="1.2976" asserts="0" description="smoke harness">
+            <results>
+              <test-case description="passes in the default CI-safe configuration" name="smoke harness.passes in the default CI-safe configuration" time="1.2955" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>

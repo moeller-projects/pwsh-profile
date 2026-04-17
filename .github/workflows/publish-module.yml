@@ -1,0 +1,64 @@
+name: Publish PwshProfile Module
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  publish-module:
+    name: Publish module to PSGallery
+    runs-on: ubuntu-latest
+    needs: validate
+    env:
+      PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate publish prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
+            throw "Repository secret 'PSGALLERY_API_KEY' is required to publish the module."
+          }
+
+          $manifest = Test-ModuleManifest ./PwshProfile/PwshProfile.psd1
+          foreach ($requiredProperty in 'Description', 'Version', 'Author') {
+            if (-not $manifest.$requiredProperty) {
+              throw "Module manifest is missing required metadata: $requiredProperty"
+            }
+          }
+
+          $psData = $manifest.PrivateData.PSData
+          foreach ($requiredField in 'ProjectUri', 'LicenseUri', 'Tags') {
+            if (-not $psData.$requiredField) {
+              throw "Module manifest PSData is missing required metadata: $requiredField"
+            }
+          }
+
+      - name: Install publishing dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+          }
+          catch {
+            Write-Host "Unable to trust PSGallery automatically: $($_.Exception.Message)"
+          }
+          Install-Module -Name PowerShellGet -Scope CurrentUser -Force -AllowClobber
+
+      - name: Publish module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Publish-Module -Path ./PwshProfile -NuGetApiKey $env:PSGALLERY_API_KEY -Force

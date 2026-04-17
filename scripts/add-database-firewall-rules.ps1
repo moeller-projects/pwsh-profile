@@ -1,4 +1,23 @@
-[CmdletBinding()]
+<#PSScriptInfo
+
+.VERSION 0.2.0
+.GUID 69e84d19-92ad-47ae-b647-baf7f56cb840
+.AUTHOR moeller-projects
+.COMPANYNAME moeller-projects
+.COPYRIGHT (c) moeller-projects. All rights reserved.
+.TAGS powershell azure firewall mongodb
+.LICENSEURI https://github.com/moeller-projects/pwsh-profile/blob/main/LICENSE
+.PROJECTURI https://github.com/moeller-projects/pwsh-profile
+.RELEASENOTES Hardened validation, WhatIf support, and CI coverage.
+
+#>
+<#
+.SYNOPSIS
+    Adds temporary access for the current IP to configured SQL, VM NSG, and MongoDB resources.
+.DESCRIPTION
+    Resolves the current IP address, loads resource definitions from a JSON/YAML config file, and safely adds temporary access rules with -WhatIf/-Confirm support.
+#>
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param (
     [string]$RulePrefix = "lukas-at-home",
     [string]$IpAddress = $null,
@@ -23,13 +42,15 @@ param (
 )
 
 $ErrorActionPreference = 'Stop'
+$script:IsQuiet = $Quiet.IsPresent
+$script:NsgRulePriorityValue = $NsgRulePriority
 
 # ---------------------- Helper functions ----------------------
 
 function Write-Info
 {
     param([string]$Message)
-    if (-not $Quiet)
+    if (-not $script:IsQuiet)
     {
         Write-Output $Message
     }
@@ -115,6 +136,7 @@ function Load-ResourcesFromConfig
 
 function Remove-SQLFirewallRules
 {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [string]$serverName,
         [string]$resourceGroup,
@@ -137,17 +159,19 @@ function Remove-SQLFirewallRules
         {
             if (-not [string]::IsNullOrWhiteSpace($rule))
             {
-                az sql server firewall-rule delete `
-                    --resource-group $resourceGroup `
-                    --server $serverName `
-                    --name $rule | Out-Null
+                if ($PSCmdlet.ShouldProcess("$serverName/$rule", 'Delete SQL firewall rule')) {
+                    az sql server firewall-rule delete `
+                        --resource-group $resourceGroup `
+                        --server $serverName `
+                        --name $rule | Out-Null
 
-                if ($LASTEXITCODE -ne 0)
-                {
-                    throw "az sql server firewall-rule delete for rule '$rule' failed with exit code $LASTEXITCODE."
+                    if ($LASTEXITCODE -ne 0)
+                    {
+                        throw "az sql server firewall-rule delete for rule '$rule' failed with exit code $LASTEXITCODE."
+                    }
+
+                    Write-Info "Deleted existing SQL firewall rule: $rule"
                 }
-
-                Write-Info "Deleted existing SQL firewall rule: $rule"
             }
         }
     } catch
@@ -158,6 +182,7 @@ function Remove-SQLFirewallRules
 
 function Remove-NSGRules
 {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [string]$nsgName,
         [string]$resourceGroup,
@@ -180,17 +205,19 @@ function Remove-NSGRules
         {
             if (-not [string]::IsNullOrWhiteSpace($rule))
             {
-                az network nsg rule delete `
-                    --resource-group $resourceGroup `
-                    --nsg-name $nsgName `
-                    --name $rule | Out-Null
+                if ($PSCmdlet.ShouldProcess("$nsgName/$rule", 'Delete NSG rule')) {
+                    az network nsg rule delete `
+                        --resource-group $resourceGroup `
+                        --nsg-name $nsgName `
+                        --name $rule | Out-Null
 
-                if ($LASTEXITCODE -ne 0)
-                {
-                    throw "az network nsg rule delete for rule '$rule' failed with exit code $LASTEXITCODE."
+                    if ($LASTEXITCODE -ne 0)
+                    {
+                        throw "az network nsg rule delete for rule '$rule' failed with exit code $LASTEXITCODE."
+                    }
+
+                    Write-Info "Deleted existing NSG rule: $rule"
                 }
-
-                Write-Info "Deleted existing NSG rule: $rule"
             }
         }
     } catch
@@ -201,6 +228,7 @@ function Remove-NSGRules
 
 function Manage-FirewallRules
 {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [string]$serverName,
         [string]$resourceGroup,
@@ -214,22 +242,24 @@ function Manage-FirewallRules
         Error    = $null
     }
 
-    Remove-SQLFirewallRules -serverName $serverName -resourceGroup $resourceGroup -rulePrefix $rulePrefix
+    Remove-SQLFirewallRules -serverName $serverName -resourceGroup $resourceGroup -rulePrefix $rulePrefix -WhatIf:$WhatIfPreference -Confirm:$false
 
     try
     {
         $firewallRuleName = "$rulePrefix-$( Get-Date -Format yyyyMMdd-HHmmss )"
 
-        az sql server firewall-rule create `
-            --resource-group $resourceGroup `
-            --server $serverName `
-            --name $firewallRuleName `
-            --start-ip-address $currentIp `
-            --end-ip-address $currentIp | Out-Null
+        if ($PSCmdlet.ShouldProcess("$serverName/$firewallRuleName", "Create SQL firewall rule for $currentIp")) {
+            az sql server firewall-rule create `
+                --resource-group $resourceGroup `
+                --server $serverName `
+                --name $firewallRuleName `
+                --start-ip-address $currentIp `
+                --end-ip-address $currentIp | Out-Null
 
-        if ($LASTEXITCODE -ne 0)
-        {
-            throw "az sql server firewall-rule create failed with exit code $LASTEXITCODE."
+            if ($LASTEXITCODE -ne 0)
+            {
+                throw "az sql server firewall-rule create failed with exit code $LASTEXITCODE."
+            }
         }
 
         $result.Status = 'Success'
@@ -247,6 +277,7 @@ function Manage-FirewallRules
 
 function Manage-MongoAccessList
 {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [string]$ProjectId,
         [string]$AtlasProfile,
@@ -263,7 +294,7 @@ function Manage-MongoAccessList
 
     try
     {
-        $args = @(
+        $atlasArguments = @(
             'accessLists', 'create', $CurrentIp,
             '--type', 'ipAddress',
             '--comment', $RulePrefix,
@@ -272,19 +303,22 @@ function Manage-MongoAccessList
 
         if (-not [string]::IsNullOrWhiteSpace($ProjectId))
         {
-            $args += @('--projectId', $ProjectId)
+            $atlasArguments += @('--projectId', $ProjectId)
         }
 
         if (-not [string]::IsNullOrWhiteSpace($AtlasProfile))
         {
-            $args += @('--profile', $AtlasProfile)
+            $atlasArguments += @('--profile', $AtlasProfile)
         }
 
-        & atlas @args | Out-Null
+        $mongoTarget = if (-not [string]::IsNullOrWhiteSpace($ProjectId)) { $ProjectId } else { $AtlasProfile }
+        if ($PSCmdlet.ShouldProcess($mongoTarget, "Create MongoDB access list entry for $CurrentIp")) {
+            & atlas @atlasArguments | Out-Null
 
-        if ($LASTEXITCODE -ne 0)
-        {
-            throw "atlas accessLists create failed with exit code $LASTEXITCODE."
+            if ($LASTEXITCODE -ne 0)
+            {
+                throw "atlas accessLists create failed with exit code $LASTEXITCODE."
+            }
         }
 
         $result.Status = 'Success'
@@ -300,6 +334,7 @@ function Manage-MongoAccessList
 
 function Manage-NSGRules
 {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [string]$vmName,
         [string]$resourceGroup,
@@ -409,24 +444,26 @@ function Manage-NSGRules
         $nsgResourceGroup = $nsgParts[4]
         $nsgName = $nsgParts[-1]
 
-        Remove-NSGRules -nsgName $nsgName -resourceGroup $nsgResourceGroup -rulePrefix $rulePrefix
+        Remove-NSGRules -nsgName $nsgName -resourceGroup $nsgResourceGroup -rulePrefix $rulePrefix -WhatIf:$WhatIfPreference -Confirm:$false
 
         $nsgRuleName = "$rulePrefix-$( Get-Date -Format yyyyMMdd-HHmmss )"
 
-        az network nsg rule create `
-            --resource-group $nsgResourceGroup `
-            --nsg-name $nsgName `
-            --name $nsgRuleName `
-            --priority $NsgRulePriority `
-            --source-address-prefixes $currentIp `
-            --destination-port-ranges $effectivePorts `
-            --access Allow `
-            --protocol Tcp `
-            --direction Inbound | Out-Null
+        if ($PSCmdlet.ShouldProcess("$nsgName/$nsgRuleName", "Create NSG rule for $currentIp")) {
+            az network nsg rule create `
+                --resource-group $nsgResourceGroup `
+                --nsg-name $nsgName `
+                --name $nsgRuleName `
+                --priority $script:NsgRulePriorityValue `
+                --source-address-prefixes $currentIp `
+                --destination-port-ranges $effectivePorts `
+                --access Allow `
+                --protocol Tcp `
+                --direction Inbound | Out-Null
 
-        if ($LASTEXITCODE -ne 0)
-        {
-            throw "az network nsg rule create failed with exit code $LASTEXITCODE."
+            if ($LASTEXITCODE -ne 0)
+            {
+                throw "az network nsg rule create failed with exit code $LASTEXITCODE."
+            }
         }
 
         $result.Status = 'Success'
@@ -558,7 +595,9 @@ foreach ($group in $groupedResources)
 
     if (-not [string]::IsNullOrWhiteSpace($subscriptionId))
     {
-        az account set --subscription $subscriptionId | Out-Null
+        if ($PSCmdlet.ShouldProcess($subscriptionId, 'Select Azure subscription')) {
+            az account set --subscription $subscriptionId | Out-Null
+        }
         if ($LASTEXITCODE -ne 0)
         {
             throw "Failed to set Azure subscription '$subscriptionId' (exit code $LASTEXITCODE)."
@@ -581,7 +620,9 @@ foreach ($group in $groupedResources)
                 $fwResult = Manage-FirewallRules -serverName $resName `
                     -resourceGroup $resGroup `
                     -currentIp $currentIp `
-                    -rulePrefix $RulePrefix
+                    -rulePrefix $RulePrefix `
+                    -WhatIf:$WhatIfPreference `
+                    -Confirm:$false
 
                 $details = if ($fwResult.Status -eq 'Success')
                 {
@@ -613,7 +654,9 @@ foreach ($group in $groupedResources)
                     -currentIp $currentIp `
                     -rulePrefix $RulePrefix `
                     -nsgMode $NsgMode `
-                    -destinationPorts $NsgDestinationPorts
+                    -destinationPorts $NsgDestinationPorts `
+                    -WhatIf:$WhatIfPreference `
+                    -Confirm:$false
 
                 $details = switch ($nsgResult.Status)
                 {
@@ -667,7 +710,9 @@ foreach ($group in $groupedResources)
                     -ProjectId $projectId `
                     -AtlasProfile $atlasProfile `
                     -CurrentIp $currentIp `
-                    -RulePrefix $RulePrefix
+                    -RulePrefix $RulePrefix `
+                    -WhatIf:$WhatIfPreference `
+                    -Confirm:$false
 
                 $details = if ($mongoResult.Status -eq 'Success')
                 {

@@ -1,0 +1,91 @@
+name: Validate PowerShell Profile
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'copilot/**'
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install validation dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Ensure-ModuleAvailable {
+            param(
+              [Parameter(Mandatory)][string]$Name
+            )
+
+            if (Get-Module -ListAvailable -Name $Name) {
+              return
+            }
+
+            try {
+              Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+            }
+            catch {
+              Write-Host "Unable to trust PSGallery automatically: $($_.Exception.Message)"
+            }
+
+            Install-Module -Name $Name -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+          }
+
+          Ensure-ModuleAvailable -Name Pester
+          Ensure-ModuleAvailable -Name PSScriptAnalyzer
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary
+
+      - name: Validate module manifest and import
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Test-ModuleManifest ./PwshProfile/PwshProfile.psd1 | Out-Null
+          Import-Module ./PwshProfile/PwshProfile.psd1 -Force -ErrorAction Stop
+          $commandCount = (Get-Command -Module PwshProfile | Measure-Object).Count
+          if ($commandCount -lt 1) {
+            throw 'PwshProfile module did not export any commands.'
+          }
+
+      - name: Validate publishable script metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inventory = (Get-Content ./tests/command-inventory.json -Raw | ConvertFrom-Json).entries
+          $publishableScripts = $inventory | Where-Object { $_.kind -eq 'script' -and $_.publishable }
+          foreach ($script in $publishableScripts) {
+            Test-ScriptFileInfo -Path $script.source | Out-Null
+          }
+
+      - name: Run Pester unit and external classification tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-Pester -Path ./tests/unit,./tests/external -CI -Output Detailed
+
+      - name: Run smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-Pester -Path ./tests/smoke -CI -Output Detailed

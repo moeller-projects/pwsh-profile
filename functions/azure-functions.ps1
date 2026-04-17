@@ -7,11 +7,18 @@ class MenuOption {
     }
 }
 
-function New-MenuItem([String]$Name, [String]$Value) {
-    $MenuItem = [MenuOption]::new()
-    $MenuItem.Name = $Name
-    $MenuItem.Value = $Value
-    return $MenuItem
+function New-MenuItem {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [String]$Name,
+        [String]$Value
+    )
+    if ($PSCmdlet.ShouldProcess($Name, 'Create menu item')) {
+        $MenuItem = [MenuOption]::new()
+        $MenuItem.Name = $Name
+        $MenuItem.Value = $Value
+        return $MenuItem
+    }
 }
 
 function Switch-AzureSubscription {
@@ -20,6 +27,7 @@ function Switch-AzureSubscription {
     param ()
 
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) { Write-Error "Azure CLI 'az' not found in PATH."; return }
+    if (-not (Get-Command Show-Menu -ErrorAction SilentlyContinue)) { Write-Error "Show-Menu is not available. Import PSMenu or InteractiveMenu first."; return }
 
     Write-Verbose "Fetching Azure subscriptions..."
     # External call to az CLI - inherent overhead
@@ -49,6 +57,7 @@ function Connect-ContainerRegistry {
     param ()
 
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) { Write-Error "Azure CLI 'az' not found in PATH."; return }
+    if (-not (Get-Command Show-Menu -ErrorAction SilentlyContinue)) { Write-Error "Show-Menu is not available. Import PSMenu or InteractiveMenu first."; return }
 
     Write-Verbose "Retrieving Azure Container Registries..."
     # External call to az CLI - inherent overhead
@@ -76,12 +85,23 @@ function Connect-ContainerRegistry {
 function New-NetworkAccessExceptionForResources {
     [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias("cna")]
-    param()
+    param(
+        [switch]$Force
+    )
 
     $url = 'https://gist.githubusercontent.com/moeller-projects/edef0e5eb63797f7fab3c79c0a30809b/raw/106b33a431f36ab905054c3acc5d1787f8dc7b5e/add-network-exception-for-resources.ps1'
     Write-Host "About to download and run: $url" -ForegroundColor Yellow
-    $confirm = Read-Host "Continue? (y/N)"
-    if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
+
+    if (-not $Force) {
+        if (-not $Host.Name) {
+            Write-Error 'This command requires confirmation. Re-run with -Force or in an interactive host.'
+            return
+        }
+
+        $confirm = Read-Host "Continue? (y/N)"
+        if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
+    }
+
     $temp = [System.IO.Path]::GetTempFileName().Replace('.tmp', '.ps1')
     try {
         Write-Verbose "Downloading script to $temp..."
