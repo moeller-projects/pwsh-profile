@@ -257,15 +257,17 @@ function Remove-ToRecycleBin {
 
     $fullPath = $item.FullName
     $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
-    if (-not $isWindowsCompat -and -not $WhatIfPreference) {
+    if (-not $isWindowsCompat) {
+        if ($WhatIfPreference) {
+            $null = $PSCmdlet.ShouldProcess($fullPath, 'move to Recycle Bin')
+            return
+        }
+
         Write-Error "Remove-ToRecycleBin requires Windows Shell support."
         return
     }
 
     if ($PSCmdlet.ShouldProcess($fullPath, 'move to Recycle Bin')) {
-        if (-not $isWindowsCompat) {
-            return
-        }
         Write-Verbose "Moving '$fullPath' to Recycle Bin..."
         $parentPath = if ($item.PSIsContainer) { $item.Parent.FullName } else { $item.DirectoryName }
         $shell = New-Object -ComObject 'Shell.Application'

@@ -249,7 +249,7 @@ if (Test-IsInteractive -eq $true) {
                 if (Get-Command dotnet -ErrorAction SilentlyContinue) {
                     $dotnetCompleter = {
                         param($wordToComplete, $commandAst, $cursorPosition)
-                        [void]$wordToComplete
+                        $null = $wordToComplete
                         dotnet complete --position $cursorPosition $commandAst.ToString() |
                         ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
                     }
@@ -260,7 +260,7 @@ if (Test-IsInteractive -eq $true) {
                 if (Get-Command az -ErrorAction SilentlyContinue) {
                     Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
                         param($commandName, $wordToComplete, $cursorPosition)
-                        [void]$commandName
+                        $null = $commandName
                         if ([string]::IsNullOrWhiteSpace($wordToComplete) -or $wordToComplete.Length -lt 2) { return }
                         $completion_file = [System.IO.Path]::GetTempFileName()
                         try {
@@ -408,7 +408,7 @@ if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi 
 if (Get-Command git -ErrorAction SilentlyContinue) {
     Register-ArgumentCompleter -Native -CommandName git -ScriptBlock {
         param($wordToComplete, $commandAst, $cursorPosition)
-        [void]$cursorPosition
+        $null = $cursorPosition
         $gitAliases = $script:GitAliases
         if (-not $gitAliases -or $env:GIT_COMPLETIONS_REFRESH -eq '1') {
             $script:GitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
