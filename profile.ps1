@@ -360,18 +360,14 @@ function Invoke-TrustedRemoteProfileScript {
     }
 }
 function winutil {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    [CmdletBinding()]
     param()
-    if ($PSCmdlet.ShouldProcess('https://christitus.com/win', 'download and execute remote script')) {
-        Invoke-TrustedRemoteProfileScript -Uri 'https://christitus.com/win'
-    }
+    Invoke-TrustedRemoteProfileScript -Uri 'https://christitus.com/win'
 }
 function winutildev {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    [CmdletBinding()]
     param()
-    if ($PSCmdlet.ShouldProcess('https://christitus.com/windev', 'download and execute remote script')) {
-        Invoke-TrustedRemoteProfileScript -Uri 'https://christitus.com/windev'
-    }
+    Invoke-TrustedRemoteProfileScript -Uri 'https://christitus.com/windev'
 }
 function admin {
     [CmdletBinding()]
