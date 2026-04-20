@@ -56,16 +56,17 @@ function Get-RepositoryScripts {
     [CmdletBinding()]
     param()
 
-    @(
-        'setup.ps1',
-        'test-loading-time.ps1',
-        'scripts/Invoke-Smoketests.ps1',
-        'scripts/add-database-firewall-rules.ps1',
-        'scripts/add-windows-defender-exclusions-for-jetbrains.ps1'
-    ) | ForEach-Object {
+    $repoRoot = Get-RepoRoot
+    Get-ChildItem -LiteralPath $repoRoot -Filter *.ps1 -File -Recurse | Where-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
+        $relativePath -ne 'profile.ps1' -and
+        $relativePath -notlike 'functions/*' -and
+        $relativePath -notlike 'tests/*'
+    } | Sort-Object FullName | ForEach-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
         [pscustomobject]@{
-            Name   = [System.IO.Path]::GetFileName($_)
-            Source = $_
+            Name   = $_.Name
+            Source = $relativePath
             Kind   = 'script'
         }
     }

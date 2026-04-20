@@ -114,16 +114,16 @@ function Invoke-ProfileSetup {
     }
 
     $targetProfileDirectory = Split-Path -Parent $ResolvedProfilePath
-    Ensure-SetupDirectory -DirectoryPath $targetProfileDirectory -WhatIf:$WhatIfPreference -Confirm:$false
-    Remove-SetupExistingProfile -ExistingProfilePath $ResolvedProfilePath -WhatIf:$WhatIfPreference -Confirm:$false
-    New-SetupProfileSymbolicLink -Source $sourceProfile -Target $ResolvedProfilePath -WhatIf:$WhatIfPreference -Confirm:$false
+    Ensure-SetupDirectory -DirectoryPath $targetProfileDirectory
+    Remove-SetupExistingProfile -ExistingProfilePath $ResolvedProfilePath
+    New-SetupProfileSymbolicLink -Source $sourceProfile -Target $ResolvedProfilePath
 
     Write-SetupLog -Level INFO -Message '--- Setup complete ---'
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
     try {
-        Invoke-ProfileSetup -ResolvedRepositoryRoot $RepositoryRoot -ResolvedProfilePath $ProfilePath -WhatIf:$WhatIfPreference -Confirm:$false
+        Invoke-ProfileSetup -ResolvedRepositoryRoot $RepositoryRoot -ResolvedProfilePath $ProfilePath
         exit 0
     }
     catch {
