@@ -28,8 +28,13 @@ if (-not $IsWindows) {
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 if (-not $isAdmin) {
-    Write-Error 'This script must be run as Administrator.'
-    exit 1
+    if ($WhatIfPreference) {
+        Write-Verbose 'Running without Administrator privileges because -WhatIf was specified; changes will be previewed only.'
+    }
+    else {
+        Write-Error 'This script must be run as Administrator.'
+        exit 1
+    }
 }
 
 $ides = @('PhpStorm', 'IntelliJ', 'PyCharm', 'RubyMine', 'WebStorm', 'DataGrip', 'GoLand', 'Rider', 'Other')
