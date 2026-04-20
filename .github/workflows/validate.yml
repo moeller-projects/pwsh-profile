@@ -55,9 +55,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary
-          if ($null -ne $results -and @($results).Count -gt 0) {
-            throw "PSScriptAnalyzer found $(@($results).Count) violation(s)."
+          $results = @(Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary)
+          if ($results.Count -gt 0) {
+            $results |
+              Select-Object RuleName, Severity, ScriptPath, Line, Message |
+              Format-Table -AutoSize |
+              Out-String -Width 200 |
+              Write-Host
+
+            throw "PSScriptAnalyzer found $($results.Count) violation(s)."
           }
 
       - name: Validate module manifest and import
