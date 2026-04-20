@@ -1,0 +1,65 @@
+name: Publish PowerShell Scripts
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  publish-scripts:
+    name: Publish scripts to PSGallery
+    runs-on: ubuntu-latest
+    needs: validate
+    env:
+      PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate publish prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
+            throw "Repository secret 'PSGALLERY_API_KEY' is required to publish scripts."
+          }
+
+          $inventory = (Get-Content ./tests/command-inventory.json -Raw | ConvertFrom-Json).entries
+          $publishableScripts = $inventory | Where-Object { $_.kind -eq 'script' -and $_.publishable }
+          if (-not $publishableScripts) {
+            throw 'No publishable scripts are defined in tests/command-inventory.json.'
+          }
+
+          foreach ($script in $publishableScripts) {
+            Test-ScriptFileInfo -Path $script.source | Out-Null
+          }
+
+      - name: Install publishing dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+          }
+          catch {
+            Write-Host "Unable to trust PSGallery automatically: $($_.Exception.Message)"
+          }
+          Install-Module -Name PowerShellGet -Scope CurrentUser -Force -AllowClobber
+
+      - name: Publish scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inventory = (Get-Content ./tests/command-inventory.json -Raw | ConvertFrom-Json).entries
+          $publishableScripts = $inventory | Where-Object { $_.kind -eq 'script' -and $_.publishable }
+
+          foreach ($script in $publishableScripts) {
+            Publish-Script -Path $script.source -NuGetApiKey $env:PSGALLERY_API_KEY -Force
+          }

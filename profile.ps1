@@ -8,14 +8,18 @@ $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
 
 # Opt-out of telemetry if running as SYSTEM
-if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
-    [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
+if ($IsWindows) {
+    try {
+        if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
+            [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
+        }
+    }
+    catch {
+        Write-Verbose ("Unable to determine SYSTEM account status: {0}" -f $_.Exception.Message)
+    }
 }
 
 Write-Verbose "Core configurations loaded at $($profileStopwatch.ElapsedMilliseconds)ms"
-
-# Admin Check (can stay synchronous as it's fast)
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 # --- Utility Functions (Keep synchronous as they are used early and are fast) ---
 
@@ -24,13 +28,32 @@ function Test-IsInteractive {
     try { $null = $Host.UI.RawUI; return $true } catch { return $false }
 }
 
-function Test-CommandExists {
+function Test-CommandAvailable {
+    [OutputType([bool])]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Command
     )
     try { $null -ne (Get-Command -Name $Command -ErrorAction SilentlyContinue) }
     catch { $false }
+}
+
+function Test-IsWindowsAdministrator {
+    [OutputType([bool])]
+    [CmdletBinding()]
+    param()
+
+    if (-not $IsWindows) {
+        return $false
+    }
+
+    try {
+        return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch {
+        Write-Verbose ("Unable to determine administrator status: {0}" -f $_.Exception.Message)
+        return $false
+    }
 }
 
 function Resolve-SymlinkPath {
@@ -71,18 +94,20 @@ $ProfileRepoPath = [System.IO.Path]::GetDirectoryName($ProfileRepoFullPath)
 # so we add the repo root to PSModulePath.
 $modulesRoot = $ProfileRepoPath
 if ([System.IO.Directory]::Exists($modulesRoot) -and ($env:PSModulePath -notlike "*${modulesRoot}*")) {
-    $env:PSModulePath = "$modulesRoot;" + $env:PSModulePath
+    $env:PSModulePath = "$modulesRoot$([System.IO.Path]::PathSeparator)$env:PSModulePath"
 }
 Write-Verbose "Module path ensured: $modulesRoot"
 
 Write-Verbose "Initial utility functions and paths resolved at $($profileStopwatch.ElapsedMilliseconds)ms"
 
+$isAdmin = Test-IsWindowsAdministrator
+
 # --- DEFERRED INITIALIZATION USING REGISTER-ENGINEEVENT (OnIdle) ---
 
 if (Test-IsInteractive -eq $true) {
     # Try to initialize prompt theme early to ensure first-render prompt
-    $global:ProfilePromptInitializedEarly = $false
-    $global:ProfileLoadingPromptActive = $false
+    $script:ProfilePromptInitializedEarly = $false
+    $script:ProfileLoadingPromptActive = $false
     try {
         $earlyChoice = $Env:PWSH_PROMPT
         switch ($earlyChoice) {
@@ -93,7 +118,7 @@ if (Test-IsInteractive -eq $true) {
                     & ([ScriptBlock]::Create($init))
                     $cmd = Get-Command prompt -ErrorAction SilentlyContinue
                     if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
-                        $global:ProfilePromptInitializedEarly = $true
+                        $script:ProfilePromptInitializedEarly = $true
                     }
                 }
             }
@@ -103,17 +128,19 @@ if (Test-IsInteractive -eq $true) {
                     & ([ScriptBlock]::Create($init))
                     $cmd = Get-Command prompt -ErrorAction SilentlyContinue
                     if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
-                        $global:ProfilePromptInitializedEarly = $true
+                        $script:ProfilePromptInitializedEarly = $true
                     }
                 }
             }
         }
     }
-    catch { }
+    catch {
+        Write-Verbose ("Prompt initialization skipped: {0}" -f $_.Exception.Message)
+    }
 
     # Temporary prompt only if theme not yet available
-    if (-not $global:ProfilePromptInitializedEarly) {
-        $global:ProfileLoadingPromptActive = $true
+    if (-not $script:ProfilePromptInitializedEarly) {
+        $script:ProfileLoadingPromptActive = $true
         function prompt { "[loading]: PS $($ExecutionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
     }
 
@@ -181,11 +208,18 @@ if (Test-IsInteractive -eq $true) {
             Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
         }
     }
-    catch { }
+    catch {
+        Write-Verbose ("PSReadLine initialization skipped: {0}" -f $_.Exception.Message)
+    }
 
     # Set initial window title
     $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
-    $Host.UI.RawUI.WindowTitle = "PowerShell {0}$adminSuffix" -f $PSVersionTable.PSVersion.ToString()
+    try {
+        $Host.UI.RawUI.WindowTitle = "PowerShell {0}$adminSuffix" -f $PSVersionTable.PSVersion.ToString()
+    }
+    catch {
+        Write-Verbose ("Window title update skipped: {0}" -f $_.Exception.Message)
+    }
 
     Write-Verbose "Interactive session detected; registering deferred initialization"
 
@@ -215,6 +249,7 @@ if (Test-IsInteractive -eq $true) {
                 if (Get-Command dotnet -ErrorAction SilentlyContinue) {
                     $dotnetCompleter = {
                         param($wordToComplete, $commandAst, $cursorPosition)
+                        $null = $wordToComplete
                         dotnet complete --position $cursorPosition $commandAst.ToString() |
                         ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
                     }
@@ -225,6 +260,7 @@ if (Test-IsInteractive -eq $true) {
                 if (Get-Command az -ErrorAction SilentlyContinue) {
                     Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
                         param($commandName, $wordToComplete, $cursorPosition)
+                        $null = $commandName
                         if ([string]::IsNullOrWhiteSpace($wordToComplete) -or $wordToComplete.Length -lt 2) { return }
                         $completion_file = [System.IO.Path]::GetTempFileName()
                         try {
@@ -267,10 +303,12 @@ if (Test-IsInteractive -eq $true) {
 
             # Update window title to indicate readiness
             try {
-                $adminSuffix = if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { " [ADMIN]" } else { "" }
+                $adminSuffix = if (Test-IsWindowsAdministrator) { " [ADMIN]" } else { "" }
                 $Host.UI.RawUI.WindowTitle = "PowerShell {0}{1} — Ready in {2} ms" -f $PSVersionTable.PSVersion.ToString(), $adminSuffix, $elapsedMs
             }
-            catch { }
+            catch {
+                Write-Verbose ("Ready-state window title update skipped: {0}" -f $_.Exception.Message)
+            }
 
             # Always print a concise confirmation when the profile is fully loaded
             # Intentionally uses Write-Host for interactive UX per repo guidelines
@@ -283,12 +321,14 @@ if (Test-IsInteractive -eq $true) {
             Unregister-Event -SourceIdentifier PowerShell.OnIdle -ErrorAction SilentlyContinue
             # Restore default prompt only if we used the temporary loading prompt
             try {
-                if ($global:ProfileLoadingPromptActive) {
+                if ($script:ProfileLoadingPromptActive) {
                     Remove-Item Function:prompt -ErrorAction SilentlyContinue
-                    $global:ProfileLoadingPromptActive = $false
+                    $script:ProfileLoadingPromptActive = $false
                 }
             }
-            catch { }
+            catch {
+                Write-Verbose ("Prompt cleanup skipped: {0}" -f $_.Exception.Message)
+            }
         }
     } | Out-Null
 }
@@ -298,12 +338,49 @@ if (Test-IsInteractive -eq $true) {
 function Invoke-ProfileReload { & $profile }
 function Edit-Profile { vim $PROFILE }
 Set-Alias -Name ep -Value Edit-Profile
-function winutil { irm https://christitus.com/win | iex }
-function winutildev { irm https://christitus.com/windev | iex }
+function Invoke-TrustedRemoteProfileScript {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Uri
+    )
+
+    if (-not (Test-IsInteractive)) {
+        Write-Error 'Remote profile helpers require an interactive session.'
+        return
+    }
+
+    if ($PSCmdlet.ShouldProcess($Uri, 'download and execute remote script')) {
+        $scriptContent = Invoke-RestMethod -Uri $Uri -TimeoutSec 30 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($scriptContent)) {
+            Write-Error "No script content returned from '$Uri'."
+            return
+        }
+
+        & ([ScriptBlock]::Create([string]$scriptContent))
+    }
+}
+function winutil {
+    [CmdletBinding()]
+    param()
+    Invoke-TrustedRemoteProfileScript -Uri 'https://christitus.com/win'
+}
+function winutildev {
+    [CmdletBinding()]
+    param()
+    Invoke-TrustedRemoteProfileScript -Uri 'https://christitus.com/windev'
+}
 function admin {
     [CmdletBinding()]
     [Alias("su")]
     param ()
+    if (-not $IsWindows) {
+        Write-Error 'admin is only supported on Windows.'
+        return
+    }
+    if (-not (Test-CommandAvailable -Command 'wt')) {
+        Write-Error "Windows Terminal 'wt' was not found in PATH."
+        return
+    }
     if ($args.Count -gt 0) {
         $argList = $args -join ' '
         Start-Process wt -Verb runAs -ArgumentList "pwsh.exe -NoExit -Command $argList"
@@ -327,6 +404,7 @@ if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi 
 if (Get-Command git -ErrorAction SilentlyContinue) {
     Register-ArgumentCompleter -Native -CommandName git -ScriptBlock {
         param($wordToComplete, $commandAst, $cursorPosition)
+        $null = $cursorPosition
         $gitAliases = $script:GitAliases
         if (-not $gitAliases -or $env:GIT_COMPLETIONS_REFRESH -eq '1') {
             $script:GitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
@@ -343,4 +421,11 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."
 
-if (Get-Command git-wt -ErrorAction SilentlyContinue) { Invoke-Expression (& git-wt config shell init powershell | Out-String) }
+if (Get-Command git-wt -ErrorAction SilentlyContinue) {
+    try {
+        Invoke-Expression (& git-wt config shell init powershell | Out-String)
+    }
+    catch {
+        Write-Verbose ("git-wt shell initialization skipped: {0}" -f $_.Exception.Message)
+    }
+}

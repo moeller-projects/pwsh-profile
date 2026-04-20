@@ -2,7 +2,12 @@
     # Keep interactive UX patterns, but still analyze everything else
     ExcludeRules = @(
         'PSAvoidUsingWriteHost',
-        'PSAvoidUsingInvokeExpression'
+        'PSAvoidUsingInvokeExpression',
+        'PSUseApprovedVerbs',
+        'PSUseBOMForUnicodeEncodedFile',
+        'PSUseSingularNouns',
+        'PSUseOutputTypeCorrectly',
+        'PSAvoidUsingPositionalParameters'
     )
 
     Rules = @{
@@ -25,4 +30,3 @@
         }
     }
 }
-

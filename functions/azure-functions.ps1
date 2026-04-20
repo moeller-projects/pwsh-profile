@@ -7,7 +7,13 @@ class MenuOption {
     }
 }
 
-function New-MenuItem([String]$Name, [String]$Value) {
+function New-MenuItem {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Creates an in-memory object only.')]
+    [CmdletBinding()]
+    param(
+        [String]$Name,
+        [String]$Value
+    )
     $MenuItem = [MenuOption]::new()
     $MenuItem.Name = $Name
     $MenuItem.Value = $Value
@@ -20,6 +26,7 @@ function Switch-AzureSubscription {
     param ()
 
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) { Write-Error "Azure CLI 'az' not found in PATH."; return }
+    if (-not (Get-Command Show-Menu -ErrorAction SilentlyContinue)) { Write-Error "Show-Menu is not available. Import PSMenu or InteractiveMenu first."; return }
 
     Write-Verbose "Fetching Azure subscriptions..."
     # External call to az CLI - inherent overhead
@@ -49,6 +56,7 @@ function Connect-ContainerRegistry {
     param ()
 
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) { Write-Error "Azure CLI 'az' not found in PATH."; return }
+    if (-not (Get-Command Show-Menu -ErrorAction SilentlyContinue)) { Write-Error "Show-Menu is not available. Import PSMenu or InteractiveMenu first."; return }
 
     Write-Verbose "Retrieving Azure Container Registries..."
     # External call to az CLI - inherent overhead
@@ -76,12 +84,37 @@ function Connect-ContainerRegistry {
 function New-NetworkAccessExceptionForResources {
     [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias("cna")]
-    param()
+    param(
+        [switch]$Force
+    )
 
     $url = 'https://gist.githubusercontent.com/moeller-projects/edef0e5eb63797f7fab3c79c0a30809b/raw/106b33a431f36ab905054c3acc5d1787f8dc7b5e/add-network-exception-for-resources.ps1'
     Write-Host "About to download and run: $url" -ForegroundColor Yellow
-    $confirm = Read-Host "Continue? (y/N)"
-    if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
+
+    if (-not $Force) {
+        $canPrompt = $false
+        try {
+            $null = $Host.UI.RawUI
+            $canPrompt = -not [Console]::IsInputRedirected
+        }
+        catch {
+            Write-Verbose ("Prompt capability check failed: {0}" -f $_.Exception.Message)
+            $canPrompt = $false
+        }
+
+        if ([Environment]::GetCommandLineArgs() -contains '-NonInteractive') {
+            $canPrompt = $false
+        }
+
+        if (-not $canPrompt) {
+            Write-Error 'This command requires confirmation. Re-run with -Force or in an interactive host.'
+            return
+        }
+
+        $confirm = Read-Host "Continue? (y/N)"
+        if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
+    }
+
     $temp = [System.IO.Path]::GetTempFileName().Replace('.tmp', '.ps1')
     try {
         Write-Verbose "Downloading script to $temp..."

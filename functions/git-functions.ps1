@@ -347,7 +347,12 @@ function Optimize-GitRepository {
         [string[]]$ProtectedBranches = @('main', 'master', 'dev', 'develop')
     )
 
-    function Process-SingleRepo {
+    $shouldFetch = $Fetch.IsPresent
+    $useAggressiveMaintenance = $Aggressive.IsPresent
+    $shouldCollectSizeMetrics = $CollectSizeMetrics.IsPresent
+    $protectedBranchList = $ProtectedBranches
+
+    function Invoke-SingleRepoOptimization {
         param(
             [string]$Path,
             [bool]$IsDryRun
@@ -372,7 +377,7 @@ function Optimize-GitRepository {
 
             # Get initial repo size if metrics requested
             $initialSize = $null
-            if ($CollectSizeMetrics) {
+            if ($shouldCollectSizeMetrics) {
                 $initialSize = Get-RepoSize -Path $Path
                 Write-Host "📊 Initial repository size: $(Format-FileSize $initialSize)" -ForegroundColor Gray
             }
@@ -382,7 +387,7 @@ function Optimize-GitRepository {
             if ($currentBranch) { Write-Host "🌿 Current Branch: $currentBranch" -ForegroundColor Cyan }
 
             # Optionally fetch
-            if ($Fetch) {
+            if ($shouldFetch) {
                 Write-Host "`n🔄 Fetching latest from remote..." -ForegroundColor Yellow
                 if (-not $IsDryRun) { if ($PSCmdlet.ShouldProcess($Path, 'git fetch --all --prune')) { git fetch --all --prune 2>$null } }
                 else { Write-Host "(dry run) Would: git fetch --all --prune" -ForegroundColor DarkYellow }
@@ -410,7 +415,7 @@ function Optimize-GitRepository {
 
             # Candidate local branches excluding protected and current
             $localBranches = ($branchMetadata.Keys | Where-Object {
-                    $_ -and ($_ -ne $currentBranch) -and ($ProtectedBranches -notcontains $_) -and ($_ -notmatch '^dev/|^develop/')
+                    $_ -and ($_ -ne $currentBranch) -and ($protectedBranchList -notcontains $_) -and ($_ -notmatch '^dev/|^develop/')
                 })
 
             $branchesToDelete = @()
@@ -498,7 +503,7 @@ function Optimize-GitRepository {
                     }
                 }
 
-                if ($Aggressive) {
+                if ($useAggressiveMaintenance) {
                     if ($PSCmdlet.ShouldProcess($Path, 'git reflog expire --expire=now --all')) {
                         git reflog expire --expire=now --all 2>$null
                         if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Reflog pruned" -ForegroundColor Green }
@@ -522,7 +527,7 @@ function Optimize-GitRepository {
             }
 
             # Get final repo size (only if not dry run and metrics requested)
-            if (-not $IsDryRun -and $CollectSizeMetrics -and $initialSize -ne $null) {
+            if (-not $IsDryRun -and $shouldCollectSizeMetrics -and $null -ne $initialSize) {
                 $finalSize = Get-RepoSize -Path $Path
                 $sizeReduction = [long]($initialSize - $finalSize)
 
@@ -585,13 +590,13 @@ function Optimize-GitRepository {
 
         foreach ($repo in $repos) {
             if ($PSCmdlet.ShouldProcess($repo, 'Process repository')) {
-                Process-SingleRepo -Path $repo -IsDryRun $DryRun
+                Invoke-SingleRepoOptimization -Path $repo -IsDryRun $DryRun
             }
         }
     }
     else {
         if ($PSCmdlet.ShouldProcess($RepoPath, 'Process repository')) {
-            Process-SingleRepo -Path $RepoPath -IsDryRun $DryRun
+            Invoke-SingleRepoOptimization -Path $RepoPath -IsDryRun $DryRun
         }
     }
 }
@@ -667,12 +672,21 @@ function Get-GitRepositoriesSummary {
 }
 
 function Invoke-AiCommit {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     [Alias('aicommit')]
     param(
         [Parameter(Position = 0, Mandatory = $false)]
         [string]$Context
     )
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Error "git not found in PATH."
+        return
+    }
+    if (-not (Get-Command lumen -ErrorAction SilentlyContinue)) {
+        Write-Error "lumen not found in PATH."
+        return
+    }
 
     $staged = git diff --cached --name-only
 
@@ -688,10 +702,12 @@ function Invoke-AiCommit {
         }
     }
 
-    if ($Context) {
-        lumen draft --context "$Context" | git commit -F -
-    }
-    else {
-        lumen draft | git commit -F -
+    if ($PSCmdlet.ShouldProcess('git repository', 'create commit message with lumen and run git commit')) {
+        if ($Context) {
+            lumen draft --context "$Context" | git commit -F -
+        }
+        else {
+            lumen draft | git commit -F -
+        }
     }
 }

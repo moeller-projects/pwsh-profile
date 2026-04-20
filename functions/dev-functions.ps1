@@ -1,9 +1,4 @@
-$global:ProjectPaths = @(
-    "D:\projects\aveato",
-    "D:\projects\laekkerai",
-    "D:\projects\private",
-    "D:\projects\research"
-)
+$script:DefaultProjectPaths = @()
 
 # Project paths configuration helpers
 function Get-ProjectConfigPath {
@@ -27,7 +22,7 @@ function Get-ProjectPaths {
         }
     }
     if ($env:PWSH_PROJECT_PATHS) { return ($env:PWSH_PROJECT_PATHS -split ';|,') }
-    return $global:ProjectPaths
+    return $script:DefaultProjectPaths
 }
 
 function Set-ProjectPaths {
@@ -40,17 +35,22 @@ function Set-ProjectPaths {
     $json = $obj | ConvertTo-Json -Depth 3
     if ($PSCmdlet.ShouldProcess($cfgPath, 'write project paths config')) {
         Set-Content -LiteralPath $cfgPath -Value $json -Encoding UTF8
+        $script:ProjectPaths = $Paths
         Write-Verbose "Saved project paths to $cfgPath"
     }
 }
 
-$global:ProjectPaths = Get-ProjectPaths
+$script:ProjectPaths = Get-ProjectPaths
 
 # Custom argument completer for substring matching
 Register-ArgumentCompleter -CommandName Enter-ProjectDirectory -ParameterName ProjectName -ScriptBlock {
     param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    [void]$commandName
+    [void]$parameterName
+    [void]$commandAst
+    [void]$fakeBoundParameters
 
-    $matches = foreach ($projectPath in $global:ProjectPaths) {
+    $projectMatches = foreach ($projectPath in $script:ProjectPaths) {
         if (Test-Path $projectPath) {
             Get-ChildItem -Path $projectPath -Directory | ForEach-Object {
                 $relativePath = $_.BaseName
@@ -63,7 +63,7 @@ Register-ArgumentCompleter -CommandName Enter-ProjectDirectory -ParameterName Pr
         }
     }
 
-    return $matches
+    return $projectMatches
 }
 
 function Enter-ProjectDirectory {
@@ -73,7 +73,7 @@ function Enter-ProjectDirectory {
         [string] $ProjectName
     )
 
-    foreach ($projectPath in $global:ProjectPaths) {
+    foreach ($projectPath in $script:ProjectPaths) {
         # Use .NET Path.Combine for performance
         $fullProjectPath = [System.IO.Path]::Combine($projectPath, $ProjectName)
         if ([System.IO.Directory]::Exists($fullProjectPath)) {
@@ -147,12 +147,14 @@ function pgrep {
     Get-Process $Name -ErrorAction SilentlyContinue
 }
 function Stop-ProcessForce {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     [Alias('k9')]
     param(
         [Parameter(Mandatory)][string]$Name
     )
-    Stop-Process -Name $Name -Force -ErrorAction SilentlyContinue
+    if ($PSCmdlet.ShouldProcess($Name, 'Stop process')) {
+        Stop-Process -Name $Name -Force -ErrorAction SilentlyContinue
+    }
 }
 function sysinfo { [CmdletBinding()] param() Get-ComputerInfo }
 function flushdns {
@@ -181,19 +183,12 @@ function uptime {
         $dateFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.ShortDatePattern
         $timeFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.LongTimePattern
 
-        # Prefer Get-CimInstance for system info over Get-WmiObject for PowerShell 6+
-        # However, win32_operatingsystem is common, so keeping WMI for PS 5 compatibility check.
-        # For PS 7+, (Get-CimInstance Win32_OperatingSystem).LastBootUpTime is more direct
-        # and avoids parsing 'net statistics workstation' string.
         $bootTime = $null
-        if ($PSVersionTable.PSVersion.Major -ge 6) {
-            # Optimized for PS6+
+        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
             $bootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
         }
         else {
-            # For PS5, use WMI
-            $lastBoot = (Get-WmiObject win32_operatingsystem).LastBootUpTime
-            $bootTime = [System.Management.ManagementDateTimeConverter]::ToDateTime($lastBoot)
+            $bootTime = (Get-Date).AddMilliseconds(-[Environment]::TickCount64)
         }
 
         $formattedBootTime = $bootTime.ToString("dddd, MMMM dd,yyyy HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + " [$($bootTime.ToString("$dateFormat $timeFormat"))]"
@@ -204,6 +199,26 @@ function uptime {
     }
     catch {
         Write-Error "An error occurred while retrieving system uptime. $_"
+    }
+}
+
+function ConvertFrom-DotEnvLine {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Line) -or $Line -match '^\s*#') {
+        return $null
+    }
+
+    if ($Line -notmatch '^\s*([^=]+)\s*=(.*)$') {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        Name  = $Matches[1].Trim()
+        Value = $Matches[2].Trim()
     }
 }
 
@@ -222,14 +237,9 @@ function Use-Env {
     if (Test-Path .env) {
         $envLines = Get-Content .env
         foreach ($line in $envLines) {
-            if (![string]::IsNullOrWhiteSpace($line) -and $line -notmatch '^\s*#') {
-                if ($line -match '^\s*([^=]+)\s*=(.*)$') {
-                    $name = $matches[1].Trim()
-                    $value = $matches[2].Trim()
-                    Set-Item -Path "env:$name" -Value $value
-                    # Write-Verbose "Set $name=$value"
-                }
-            }
+            $entry = ConvertFrom-DotEnvLine -Line $line
+            if ($null -eq $entry) { continue }
+            Set-Item -Path "env:$($entry.Name)" -Value $entry.Value
         }
         Set-Item -Path 'env:APP_ENV' -Value 'DEV'
     }

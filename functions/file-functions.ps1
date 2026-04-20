@@ -69,10 +69,10 @@ function Publish-FileShare {
             $uploadUri = "$baseApiUrl/$($credentials.id)/patch?dst=$($fileInfo.Name)&offset=0"
             # Form data creation might be optimized slightly, but Invoke-WebRequest handles it well
             if ($PSVersionTable.PSVersion.Major -ge 6) {
-                $uploadResponse = Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 60 -ErrorAction Stop
+                Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 60 -ErrorAction Stop | Out-Null
             }
             else {
-                $uploadResponse = Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+                Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop | Out-Null
             }
             $sizeLabel = ConvertTo-HumanReadableSize -Bytes $fileInfo.Length
             Write-Information "[DONE] $($fileInfo.Name) - $sizeLabel"
@@ -85,10 +85,10 @@ function Publish-FileShare {
     Write-Verbose "Finalizing upload..."
     $finalizeUri = "$baseApiUrl/$($credentials.id)/finalize"
     if ($PSVersionTable.PSVersion.Major -ge 6) {
-        $finalizeResponse = Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 30 -ErrorAction Stop
+        Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 30 -ErrorAction Stop | Out-Null
     }
     else {
-        $finalizeResponse = Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop | Out-Null
     }
 
     $share = "https://get.hidrive.com/$($credentials.id)"
@@ -120,17 +120,19 @@ function Watch-File {
 }
 
 function New-EmptyFile {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias('touch', 'nf')]
     param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path)
     $full = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $PWD.Path $Path }
-    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
-        New-Item -ItemType File -Path $full -Force | Out-Null
-        Write-Verbose "Created empty file: $full"
-    }
-    else {
-        [System.IO.File]::SetLastWriteTimeUtc($full, [DateTime]::UtcNow)
-        Write-Verbose "Updated timestamp for: $full"
+    if ($PSCmdlet.ShouldProcess($full, 'create or update file timestamp')) {
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            New-Item -ItemType File -Path $full -Force | Out-Null
+            Write-Verbose "Created empty file: $full"
+        }
+        else {
+            [System.IO.File]::SetLastWriteTimeUtc($full, [DateTime]::UtcNow)
+            Write-Verbose "Updated timestamp for: $full"
+        }
     }
 }
 
@@ -139,17 +141,18 @@ function Find-File {
     [Alias('ff')]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name,
-        [switch]$Recurse = $true,
+        [switch]$Recurse,
         [int]$MaxDepth = -1
     )
 
     $root = (Resolve-Path $PWD.Path).Path
     $pattern = "*$Name*"
+    $shouldRecurse = if ($PSBoundParameters.ContainsKey('Recurse')) { $Recurse.IsPresent } else { $true }
     $depthLimit = if ($MaxDepth -ge 0) { $MaxDepth } else { [int]::MaxValue }
-    Write-Verbose "Searching for files matching '$pattern' in '$root' (Recurse: $($Recurse.IsPresent), MaxDepth: $MaxDepth)..."
+    Write-Verbose "Searching for files matching '$pattern' in '$root' (Recurse: $shouldRecurse, MaxDepth: $MaxDepth)..."
 
     try {
-        if (-not $Recurse) {
+        if (-not $shouldRecurse) {
             foreach ($file in [System.IO.Directory]::EnumerateFiles($root, $pattern, [System.IO.SearchOption]::TopDirectoryOnly)) {
                 $file
             }
@@ -256,6 +259,11 @@ function Remove-ToRecycleBin {
     $fullPath = $item.FullName
     $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
     if (-not $isWindowsCompat) {
+        if ($WhatIfPreference) {
+            $null = $PSCmdlet.ShouldProcess($fullPath, 'move to Recycle Bin')
+            return
+        }
+
         Write-Error "Remove-ToRecycleBin requires Windows Shell support."
         return
     }
@@ -276,10 +284,17 @@ function Remove-ToRecycleBin {
 }
 
 function Set-ClipboardText {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias('cpy')]
     param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Text)
-    Set-Clipboard -Value $Text
+    if (-not (Get-Command Set-Clipboard -ErrorAction SilentlyContinue)) {
+        Write-Error 'Set-Clipboard is not available in this session.'
+        return
+    }
+
+    if ($PSCmdlet.ShouldProcess('Clipboard', 'set clipboard text')) {
+        Set-Clipboard -Value $Text
+    }
 }
 
 function Get-ClipboardText {
@@ -370,8 +385,8 @@ function Update-FileText {
     [Alias('sed')]
     param(
         [Parameter(Mandatory)][Alias('File')][string]$Path,
-        [Parameter(Mandatory)][Alias('find')][string]$Find,
-        [Parameter(Mandatory)][Alias('replace')][string]$Replace,
+        [Parameter(Mandatory)][string]$Find,
+        [Parameter(Mandatory)][string]$Replace,
         [System.Text.Encoding]$Encoding,
         [switch]$Regex
     )
@@ -404,24 +419,30 @@ function Update-FileText {
 }
 
 function Set-LocationParent {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias('..')]
     param()
-    Set-Location ..
+    if ($PSCmdlet.ShouldProcess('..', 'Change location')) {
+        Set-Location ..
+    }
 }
 
 function Set-LocationParentTwoLevels {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias('...')]
     param()
-    Set-Location ../..
+    if ($PSCmdlet.ShouldProcess('../..', 'Change location')) {
+        Set-Location ../..
+    }
 }
 
 function Set-LocationHome {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [Alias('~')]
     param()
-    Set-Location ~
+    if ($PSCmdlet.ShouldProcess('~', 'Change location')) {
+        Set-Location ~
+    }
 }
 
 function Invoke-Eza {
@@ -430,6 +451,10 @@ function Invoke-Eza {
         [Parameter(ValueFromRemainingArguments = $true)]
         [string[]]$Args
     )
+    if (-not (Get-Command eza -ErrorAction SilentlyContinue)) {
+        Write-Error "eza was not found in PATH."
+        return
+    }
     eza --icons=always @Args
 }
 
@@ -440,5 +465,5 @@ function Invoke-EzaLs {
         [Parameter(ValueFromRemainingArguments = $true)]
         [string[]]$Args
     )
-    Invoke-Eza -Args '-lh --git --icons --group-directories-first'
+    Invoke-Eza -Args @('-lh', '--git', '--icons', '--group-directories-first') + $Args
 }
