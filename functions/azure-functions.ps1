@@ -98,6 +98,7 @@ function New-NetworkAccessExceptionForResources {
             $canPrompt = -not [Console]::IsInputRedirected
         }
         catch {
+            Write-Verbose ("Prompt capability check failed: {0}" -f $_.Exception.Message)
             $canPrompt = $false
         }
 

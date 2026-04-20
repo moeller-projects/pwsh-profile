@@ -52,7 +52,7 @@ Describe 'deterministic utility commands' {
         $result = Invoke-PwshTestCommand -PowerShellArguments @('-NonInteractive') -Command "Import-Module '$modulePath' -Force; New-NetworkAccessExceptionForResources"
 
         $result.ExitCode | Should -Not -Be 0
-        ($result.Output -join "`n") | Should -Match 'interactive host'
+        ($result.Output -join "`n") | Should -Match 'requires confirmation'
     }
 
     It 'derives the expected project config path' {
