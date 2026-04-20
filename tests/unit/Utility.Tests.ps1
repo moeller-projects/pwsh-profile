@@ -47,6 +47,14 @@ Describe 'deterministic utility commands' {
         $item.Value | Should -Be '123'
     }
 
+    It 'fails fast for network exception helper in non-interactive sessions without Force' {
+        $modulePath = Join-Path (Get-RepoRoot) 'PwshProfile/PwshProfile.psd1'
+        $result = Invoke-PwshTestCommand -PowerShellArguments @('-NonInteractive') -Command "Import-Module '$modulePath' -Force; New-NetworkAccessExceptionForResources"
+
+        $result.ExitCode | Should -Not -Be 0
+        ($result.Output -join "`n") | Should -Match 'interactive host'
+    }
+
     It 'derives the expected project config path' {
         $path = Get-ProjectConfigPath
         if ($IsWindows) {

@@ -75,7 +75,8 @@ function Invoke-PwshTestCommand {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Command,
-        [hashtable]$Environment = @{}
+        [hashtable]$Environment = @{},
+        [string[]]$PowerShellArguments = @()
     )
 
     $envAssignments = foreach ($key in $Environment.Keys) {
@@ -95,7 +96,7 @@ function Invoke-PwshTestCommand {
         $Command
     ) -join '; '
 
-    $output = & pwsh -NoLogo -NoProfile -Command $scriptBlock 2>&1
+    $output = & pwsh @PowerShellArguments -NoLogo -NoProfile -Command $scriptBlock 2>&1
     [pscustomobject]@{
         ExitCode = $LASTEXITCODE
         Output   = @($output)

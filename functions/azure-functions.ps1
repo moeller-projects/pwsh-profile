@@ -92,7 +92,20 @@ function New-NetworkAccessExceptionForResources {
     Write-Host "About to download and run: $url" -ForegroundColor Yellow
 
     if (-not $Force) {
-        if (-not $Host.Name) {
+        $canPrompt = $false
+        try {
+            $null = $Host.UI.RawUI
+            $canPrompt = -not [Console]::IsInputRedirected
+        }
+        catch {
+            $canPrompt = $false
+        }
+
+        if ([Environment]::GetCommandLineArgs() -contains '-NonInteractive') {
+            $canPrompt = $false
+        }
+
+        if (-not $canPrompt) {
             Write-Error 'This command requires confirmation. Re-run with -Force or in an interactive host.'
             return
         }
