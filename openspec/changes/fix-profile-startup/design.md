@@ -1,13 +1,14 @@
 ## Context
 
-The profile currently imports local commands through a module created in an OnIdle event action. The wrapper exports only an alias, so its nested module commands do not reach the user session. The hot path also starts prompt executables and a git integration.
+The profile now exposes local helpers through an aggregate module, which adds a fixed parse and export cost before every prompt. The hot path also starts prompt executables and optional integrations.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Make local commands available before the first prompt.
+- Make local commands available through PowerShell module autoloading.
 - Keep integrations optional or deferred without adding dependencies.
 - Preserve existing command names except the unsafe remote-execution helpers.
+- Provide safe, native port inspection and termination helpers.
 
 **Non-Goals:**
 - Benchmark-specific performance targets.
@@ -15,13 +16,14 @@ The profile currently imports local commands through a module created in an OnId
 
 ## Decisions
 
-- Import the repository manifest by absolute path synchronously. This avoids module discovery and wrapper-module scope boundaries.
-- Retain the existing OnIdle event only for integrations, with explicit global scope where state must persist.
+- Replace the synchronous aggregate import with function-area modules whose manifests explicitly declare exported functions and aliases. PowerShell can discover a command without loading unrelated areas.
+- Retain the existing OnIdle event only for optional integrations and import its small integration module only when a corresponding toggle is enabled.
 - Make prompt engines and external completions opt in. A plain prompt is always available.
 - Use script blocks created from trusted local tool output instead of `Invoke-Expression`; remove the two remote download-and-execute helpers.
+- Use `Get-NetTCPConnection` and `Stop-Process` with `ShouldProcess` for port helpers rather than adding dependencies.
 
 ## Risks / Trade-offs
 
-- Defining all local functions costs a small fixed startup amount, but is required for immediate command availability.
+- The first invocation of a command in each function area pays its module-load cost; all other areas stay unloaded.
 - Users wanting prompt engines or generated completions must set the corresponding environment toggles.
 - Removing `winutil` commands is a deliberate security-breaking change; users must invoke external setup scripts explicitly.

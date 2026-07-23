@@ -1,17 +1,16 @@
 ## 1. Startup correctness
 
-- [x] 1.1 Import the local module directly before deferred initialization.
-- [x] 1.2 Make module-path handling portable and remove wrapper-module exports.
-- [x] 1.3 Document host-specific profile setup.
+- [x] 1.1 Replace the eager aggregate import with autoloadable function-area modules.
+- [x] 1.2 Keep optional integrations in a small deferred module.
+- [x] 1.3 Remove profile-time telemetry writes, executable probing, and startup status output.
 
-## 2. Startup performance and safety
+## 2. Commands
 
-- [x] 2.1 Make prompt, completion, and git integrations opt in or deferred.
-- [x] 2.2 Remove module enumeration and unnecessary default imports.
-- [x] 2.3 Remove remote download-and-execute profile commands.
-- [x] 2.4 Keep dotenv activation and Starship initialization out of completion setup.
+- [x] 2.1 Add inspectable local-port ownership lookup.
+- [x] 2.2 Add `-WhatIf`-safe local-port process termination.
 
 ## 3. Verification
 
-- [ ] 3.1 Repair and run the startup benchmark and smoke test.
-- [x] 3.2 Validate the OpenSpec change.
+- [x] 3.1 Update documentation and smoke tests for autoloading and port helpers.
+- [x] 3.2 Run the startup benchmark and smoke test.
+- [x] 3.3 Validate the OpenSpec change.

@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
-### Requirement: Immediate local command availability
-The interactive PowerShell profile MUST import the repository's `PwshProfile` module directly by its manifest path before registering deferred initialization.
+### Requirement: Lazy local command availability
+The interactive PowerShell profile MUST add the repository root to `PSModulePath` before the first prompt, and each function area MUST expose its commands through an autoloadable module manifest.
 
-#### Scenario: Opening an interactive pwsh session
-- **WHEN** the profile repository and module manifest are present
-- **THEN** functions exported by `PwshProfile` are available before the first prompt is accepted
+#### Scenario: Invoking a local helper
+- **WHEN** a user invokes a helper from an unloaded function area
+- **THEN** PowerShell autoloads only that area module and executes the helper
 
 ### Requirement: Portable module search path
 The profile MUST use the platform path separator when it adds the repository root to `PSModulePath`.
@@ -34,3 +34,14 @@ The profile MUST NOT load a `.env` file or enable ImportDotEnv directory-change 
 #### Scenario: Enabled external completions
 - **WHEN** `PWSH_PROFILE_COMPLETIONS` is set to `1`
 - **THEN** completion initialization does not invoke `Import-DotEnv` or `Enable-ImportDotEnvCdIntegration`
+
+### Requirement: Local port helpers
+The profile MUST provide `Get-ProcessPort` to return the local listening process for a requested port and `Stop-ProcessPort` with `SupportsShouldProcess` to terminate its listening processes.
+
+#### Scenario: Inspecting a listener
+- **WHEN** a process listens on a requested local port
+- **THEN** `Get-ProcessPort` returns its port, process ID, process name, and state
+
+#### Scenario: Previewing process termination
+- **WHEN** `Stop-ProcessPort` is invoked with `-WhatIf`
+- **THEN** it reports the target process without terminating it

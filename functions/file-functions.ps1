@@ -370,8 +370,8 @@ function Update-FileText {
     [Alias('sed')]
     param(
         [Parameter(Mandatory)][Alias('File')][string]$Path,
-        [Parameter(Mandatory)][Alias('find')][string]$Find,
-        [Parameter(Mandatory)][Alias('replace')][string]$Replace,
+        [Parameter(Mandatory)][string]$Find,
+        [Parameter(Mandatory)][string]$Replace,
         [System.Text.Encoding]$Encoding,
         [switch]$Regex
     )

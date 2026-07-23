@@ -5,15 +5,14 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($VerboseOutput) { $VerbosePreference = 'Continue' }
 
-# Ensure module or functions are available
-try {
-    $repoRoot = Split-Path -Parent $PSCommandPath
-    $repoRoot = Split-Path -Parent $repoRoot
-    $modulePath = Join-Path $repoRoot 'PwshProfile/PwshProfile.psd1'
-    if (Test-Path $modulePath) { Import-Module $modulePath -Force -ErrorAction Stop }
+# Discover the split function-area modules without eagerly importing them.
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'PwshProfile.File'))) {
+    throw "Profile modules not found under $repoRoot"
 }
-catch {
-    Write-Verbose "Module import failed: $($_.Exception.Message). Proceeding with current session scope."
+$separator = [System.IO.Path]::PathSeparator
+if ($env:PSModulePath -notlike "*${repoRoot}*") {
+    $env:PSModulePath = "$repoRoot$separator$env:PSModulePath"
 }
 
 function New-TempWorkspace {
@@ -27,16 +26,16 @@ function Remove-TempWorkspace($temp) {
     Remove-Item -Recurse -Force -LiteralPath $temp.FullName -ErrorAction SilentlyContinue
 }
 
-$results = @()
+$script:results = @()
 function Test-Case($Name, [scriptblock]$Body) {
     Write-Host "[RUN] $Name" -ForegroundColor Cyan
     try {
         & $Body
-        $results += [pscustomobject]@{ Name = $Name; Status = 'Pass' }
+        $script:results += [pscustomobject]@{ Name = $Name; Status = 'Pass' }
         Write-Host "[OK ] $Name" -ForegroundColor Green
     }
     catch {
-        $results += [pscustomobject]@{ Name = $Name; Status = 'Fail'; Error = $_.Exception.Message }
+        $script:results += [pscustomobject]@{ Name = $Name; Status = 'Fail'; Error = $_.Exception.Message }
         Write-Host "[ERR] $Name -> $($_.Exception.Message)" -ForegroundColor Red
     }
 }
@@ -44,12 +43,12 @@ function Test-Case($Name, [scriptblock]$Body) {
 $ws = New-TempWorkspace
 try {
     # Navigation helpers (parent/home)
-    Test-Case 'goParent/goToParent2Levels' {
+    Test-Case 'Set-LocationParentTwoLevels' {
         New-Item -ItemType Directory -Name 'p1' | Out-Null
         Push-Location 'p1'
         New-Item -ItemType Directory -Name 'p2' | Out-Null
         Push-Location 'p2'
-        goToParent2Levels
+        Set-LocationParentTwoLevels
         if ((Split-Path -Leaf (Get-Location)) -ne (Split-Path -Leaf $ws.FullName)) { throw 'Did not return to workspace root' }
     }
     Test-Case 'goToHome (non-fatal)' {
@@ -86,6 +85,20 @@ try {
     if ($IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')) {
         Test-Case 'flushdns non-fatal' { try { flushdns } catch {} }
         Test-Case 'sysinfo non-fatal' { try { sysinfo | Out-Null } catch {} }
+        Test-Case 'Get-ProcessPort and Stop-ProcessPort -WhatIf' {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            try {
+                $port = $listener.LocalEndpoint.Port
+                $connection = Get-ProcessPort -Port $port | Select-Object -First 1
+                if ($connection.ProcessId -ne $PID) { throw "Expected PID $PID on port $port" }
+                Stop-ProcessPort -Port $port -WhatIf
+                if (-not $listener.Server.IsBound) { throw 'WhatIf stopped the listener' }
+            }
+            finally {
+                $listener.Stop()
+            }
+        }
     } else {
         Write-Host '[SKIP] Windows-only dev helpers' -ForegroundColor Yellow
     }
@@ -139,5 +152,5 @@ finally {
 }
 
 Write-Host "\nSummary:" -ForegroundColor DarkCyan
-$results | Sort-Object Status, Name | Format-Table -AutoSize
-if ($results | Where-Object Status -eq 'Fail') { exit 1 } else { exit 0 }
+$script:results | Sort-Object Status, Name | Format-Table -AutoSize
+if ($script:results | Where-Object Status -eq 'Fail') { exit 1 } else { exit 0 }

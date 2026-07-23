@@ -7,15 +7,9 @@ $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
 
-# Opt-out of telemetry if running as SYSTEM
-if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
-    [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
-}
 
 Write-Verbose "Core configurations loaded at $($profileStopwatch.ElapsedMilliseconds)ms"
 
-# Admin Check (can stay synchronous as it's fast)
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 # --- Utility Functions (Keep synchronous as they are used early and are fast) ---
 
@@ -24,14 +18,6 @@ function Test-IsInteractive {
     try { $null = $Host.UI.RawUI; return $true } catch { return $false }
 }
 
-function Test-CommandExists {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$Command
-    )
-    try { $null -ne (Get-Command -Name $Command -ErrorAction SilentlyContinue) }
-    catch { $false }
-}
 
 function Resolve-SymlinkPath {
     param (
@@ -71,16 +57,7 @@ if ([System.IO.Directory]::Exists($modulesRoot) -and ($env:PSModulePath -notlike
     $env:PSModulePath = "$modulesRoot$([System.IO.Path]::PathSeparator)$env:PSModulePath"
 }
 
-$moduleManifest = Join-Path $ProfileRepoPath 'PwshProfile/PwshProfile.psd1'
-try {
-    Import-Module -Name $moduleManifest -Global -ErrorAction Stop
-}
-catch {
-    Write-Error "Failed to import profile functions: $($_.Exception.Message)"
-    return
-}
-
-Write-Verbose "Profile functions loaded at $($profileStopwatch.ElapsedMilliseconds)ms"
+# Area modules autoload individual commands through the module path above.
 
 # --- DEFERRED INITIALIZATION USING REGISTER-ENGINEEVENT (OnIdle) ---
 
@@ -153,9 +130,6 @@ if (Test-IsInteractive) {
     catch { }
     }
 
-    # Set initial window title
-    $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
-    $Host.UI.RawUI.WindowTitle = "PowerShell {0}$adminSuffix" -f $PSVersionTable.PSVersion.ToString()
 
     Write-Verbose "Interactive session detected; registering deferred initialization"
 
@@ -164,18 +138,15 @@ if (Test-IsInteractive) {
         if ($script:ProfileDeferredInitDone) { return }
         $script:ProfileDeferredInitDone = $true
         try {
-            if (Get-Command Import-RequiredModules -ErrorAction SilentlyContinue) {
+            if ($Env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1' -or $Env:PWSH_PROFILE_COMPLETIONS -eq '1') {
+                Import-Module -Name PwshProfile.Integrations -Global -ErrorAction Stop
                 Import-RequiredModules
-            }
-
-            $editor = foreach ($cmd in 'nvim', 'pvim', 'vim', 'vi', 'code', 'notepad++', 'sublime_text') {
-                if (Get-Command $cmd -ErrorAction SilentlyContinue) {
-                    $cmd
-                    break
+                if ($Env:PWSH_PROFILE_COMPLETIONS -eq '1') {
+                    Initialize-Completion
                 }
             }
-            if (-not $editor) { $editor = 'notepad' }
-            $env:EDITOR = $editor
+
+            $editor = if ($env:EDITOR) { $env:EDITOR } else { 'notepad' }
             if ($editor -ne 'vim') {
                 Set-Alias -Name vim -Value $editor -Scope Global
             }
@@ -222,30 +193,11 @@ if (Test-IsInteractive) {
                 }
             }
 
-            if ($Env:PWSH_PROFILE_COMPLETIONS -eq '1' -and (Get-Command Initialize-Completion -ErrorAction SilentlyContinue)) {
-                Initialize-Completion
-            }
 
             if ($Env:PWSH_PROFILE_GIT_WT -eq '1' -and (Get-Command git-wt -ErrorAction SilentlyContinue)) {
                 & ([ScriptBlock]::Create((git-wt config shell init powershell | Out-String)))
             }
 
-            # Stop the stopwatch and log final time (verbose-only)
-            $sw = $ExecutionContext.SessionState.PSVariable.Get('profileStopwatch').Value
-            $sw.Stop()
-            $elapsedMs = [int]$sw.ElapsedMilliseconds
-            Write-Verbose ("Profile fully loaded at {0}ms" -f $elapsedMs)
-
-            # Update window title to indicate readiness
-            try {
-                $adminSuffix = if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { " [ADMIN]" } else { "" }
-                $Host.UI.RawUI.WindowTitle = "PowerShell {0}{1} — Ready in {2} ms" -f $PSVersionTable.PSVersion.ToString(), $adminSuffix, $elapsedMs
-            }
-            catch { }
-
-            # Always print a concise confirmation when the profile is fully loaded
-            # Intentionally uses Write-Host for interactive UX per repo guidelines
-            Write-Host ("Profile fully loaded in {0} ms" -f $elapsedMs)
         }
         catch {
             Write-Verbose ("Deferred init error: {0}" -f $_.Exception.Message)

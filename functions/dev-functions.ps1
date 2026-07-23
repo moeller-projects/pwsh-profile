@@ -298,3 +298,43 @@ function gsw {
         Write-Host "Switched to '$branch' (copied to clipboard)."
     }
 }
+
+function Get-ProcessPort {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 65535)]
+        [int]$Port
+    )
+
+    Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
+        Where-Object OwningProcess -ne 0 |
+        ForEach-Object {
+            $process = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+            [pscustomobject]@{
+                Port        = $_.LocalPort
+                State       = $_.State
+                ProcessId   = $_.OwningProcess
+                ProcessName = $process.ProcessName
+                Path        = $process.Path
+            }
+        }
+}
+
+function Stop-ProcessPort {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 65535)]
+        [int]$Port
+    )
+
+    Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
+        Where-Object OwningProcess -ne 0 |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        ForEach-Object {
+            if ($PSCmdlet.ShouldProcess("process ID $_ listening on port $Port", 'Stop')) {
+                Stop-Process -Id $_ -Force
+            }
+        }
+}

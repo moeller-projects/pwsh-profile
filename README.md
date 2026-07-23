@@ -47,20 +47,20 @@ Run the same check locally:
 pwsh -NoProfile -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force; Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary"
 ```
 
-## Module Usage (optional)
+## Module Usage
 
-The `PwshProfile` module re-exports scripts from `functions/`, which lets you use helpers without installing the profile symlink.
+The profile adds this repository to `PSModulePath` and PowerShell autoloads only the function area a command needs. For example, `touch` loads `PwshProfile.File`; `Switch-GitBranch` loads `PwshProfile.Git`.
 
-Import directly from the repository:
+Import an area explicitly when using the repository without the profile:
 
 ```powershell
-Import-Module $(Join-Path $PWD 'PwshProfile/PwshProfile.psd1') -Force
+Import-Module $(Join-Path $PWD 'PwshProfile.File/PwshProfile.File.psd1')
 ```
 
-Or copy `PwshProfile/` into a directory on `$env:PSModulePath` and import by name:
+The aggregate `PwshProfile` module remains available for callers that need every helper in one import:
 
 ```powershell
-Import-Module PwshProfile
+Import-Module $(Join-Path $PWD 'PwshProfile/PwshProfile.psd1')
 ```
 
 ## Common Commands
@@ -70,7 +70,7 @@ Import-Module PwshProfile
 | Files | `touch`, `nf`, `Find-File`, `grep`, `head`, `tail`, `mkcd`, `trash` |
 | Git | `Switch-GitBranch`, `Remove-MergedGitBranches`, `Get-RepoSize`, `Get-BranchStatus`, `Optimize-GitRepository`, `Invoke-AiCommit` |
 | Projects | `Set-ProjectPaths`, `Enter-ProjectDirectory` |
-| Development | `which`, `export`, `uptime`, `pgrep`, `pkill`, `Use-Env` |
+| Development | `which`, `export`, `uptime`, `pgrep`, `pkill`, `Get-ProcessPort`, `Stop-ProcessPort -WhatIf`, `Use-Env` |
 | Cloud/Kubernetes | `Switch-AzureSubscription`, `Connect-ContainerRegistry`, `Select-KubeContext`, `Select-KubeNamespace` |
 
 ## Smoke Tests
@@ -108,7 +108,7 @@ $env:PWSH_PROJECT_PATHS = 'D:/p1;D:/p2'
 
 ## Performance
 
-The profile uses deferred initialization via `PowerShell.OnIdle` to keep the first prompt fast. Measure load time with multiple iterations:
+The profile keeps the initial path setup and aliases synchronous; function-area modules autoload only when used. Prompt engines, optional modules, PSReadLine customization, and generated completions remain deferred or opt-in. Measure load time with multiple iterations:
 
 ```powershell
 pwsh -File ./test-loading-time.ps1 -Iterations 20
@@ -130,9 +130,10 @@ Environment toggles:
 ## Repository Layout
 
 ```text
-profile.ps1                         # PowerShell profile entry point
-functions/                          # Area-based helper scripts
-PwshProfile/                        # Importable module wrapper
+profile.ps1                         # Fast profile entry point
+functions/                          # Area-based helper implementations
+PwshProfile.*/                      # Autoloadable function-area modules
+PwshProfile/                        # Backward-compatible aggregate module
 scripts/Invoke-Smoketests.ps1       # Non-destructive smoke-test harness
 setup.ps1                           # Symlink setup script for $PROFILE
 test-loading-time.ps1               # Startup timing script
