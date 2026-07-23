@@ -1,51 +1,140 @@
 # pwsh-profile
 
+Current datetime: 2026-06-08T12:19:10+02:00
+
 [![PowerShell Static Analysis](https://github.com/moeller-projects/pwsh-profile/actions/workflows/powershell-analysis.yml/badge.svg)](https://github.com/moeller-projects/pwsh-profile/actions/workflows/powershell-analysis.yml)
 
-## CI
-- Static analysis runs on pushes and PRs via GitHub Actions (`powershell-analysis.yml`).
-- It installs PSScriptAnalyzer and checks all `.ps1` files using the repo settings `PSScriptAnalyzerSettings.psd1`.
-- The job fails on findings and prints a concise table of issues to logs.
+## Overview
 
-Run locally
-- `pwsh -NoProfile -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force; Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary"`
+This repository contains a fast-loading PowerShell profile plus a lightweight module that exposes the same helper functions for ad hoc import. The profile keeps the first prompt responsive by loading only essential settings immediately and deferring optional setup until `PowerShell.OnIdle`.
 
-## Usage
-- Setup profile link (admin): `pwsh -ExecutionPolicy Bypass -File ./setup.ps1`
-- Reload profile for testing: `. ./profile.ps1`
-- Measure load time: `pwsh -File ./test-loading-time.ps1` (baseline uses `-NoProfile`)
+Use it to get consistent interactive helpers for:
 
-Dependencies (optional but recommended)
+- Git branch, cleanup, repository summary, and AI commit workflows.
+- File navigation, search, clipboard, archive, and recycle-bin tasks.
+- Project-root jumping via user configuration.
+- Azure, Kubernetes, network, and local development shortcuts.
+- Prompt, PSReadLine, and optional completion setup.
+
+## Getting Started
+
+1. Clone the repository.
+2. Create the profile symlink from the target host:
+   ```powershell
+   pwsh -ExecutionPolicy Bypass -File ./setup.ps1
+   ```
+   Run this from `pwsh` for PowerShell 7+ and from `powershell.exe` for Windows PowerShell 5.1. Each host uses a different `$PROFILE` path; run it once per host if you use both.
+3. Restart PowerShell, or reload during development:
+   ```powershell
+   . ./profile.ps1
+   ```
+4. Measure startup after profile changes:
+   ```powershell
+   pwsh -File ./test-loading-time.ps1
+   ```
+
+Optional but recommended tools:
+
 - `git`, `fzf`, `oh-my-posh`, `PSReadLine`, `PSFzf`, `az` (Azure CLI), `kubectl`, `dotnet`
 
+## Quality Checks
+
+Static analysis runs on pushes and pull requests via GitHub Actions (`.github/workflows/powershell-analysis.yml`). The workflow installs PSScriptAnalyzer and checks all `.ps1` files with `PSScriptAnalyzerSettings.psd1`.
+
+Run the same check locally:
+
+```powershell
+pwsh -NoProfile -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force; Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary"
+```
+
 ## Module Usage (optional)
-- This repo includes a lightweight module that re-exports functions from `functions/`.
-- Import directly from the repo without installation:
-  - `Import-Module $(Join-Path $PWD 'PwshProfile/PwshProfile.psd1') -Force`
-- Or copy `PwshProfile/` into a folder on `$env:PSModulePath` and then:
-  - `Import-Module PwshProfile`
+
+The `PwshProfile` module re-exports scripts from `functions/`, which lets you use helpers without installing the profile symlink.
+
+Import directly from the repository:
+
+```powershell
+Import-Module $(Join-Path $PWD 'PwshProfile/PwshProfile.psd1') -Force
+```
+
+Or copy `PwshProfile/` into a directory on `$env:PSModulePath` and import by name:
+
+```powershell
+Import-Module PwshProfile
+```
+
+## Common Commands
+
+| Area | Examples |
+| --- | --- |
+| Files | `touch`, `nf`, `Find-File`, `grep`, `head`, `tail`, `mkcd`, `trash` |
+| Git | `Switch-GitBranch`, `Remove-MergedGitBranches`, `Get-RepoSize`, `Get-BranchStatus`, `Optimize-GitRepository`, `Invoke-AiCommit` |
+| Projects | `Set-ProjectPaths`, `Enter-ProjectDirectory` |
+| Development | `which`, `export`, `uptime`, `pgrep`, `pkill`, `Use-Env` |
+| Cloud/Kubernetes | `Switch-AzureSubscription`, `Connect-ContainerRegistry`, `Select-KubeContext`, `Select-KubeNamespace` |
 
 ## Smoke Tests
-- A non-destructive smoke-test harness exercises safe functions individually.
-- Run: `pwsh -File ./scripts/Invoke-Smoketests.ps1 -VerboseOutput`
-- The script creates a temporary workspace, uses `-WhatIf` for destructive commands, and prints a pass/fail summary.
+
+A non-destructive smoke-test harness exercises safe functions individually. It creates a temporary workspace, uses `-WhatIf` for destructive commands, and prints a pass/fail summary.
+
+```powershell
+pwsh -File ./scripts/Invoke-Smoketests.ps1 -VerboseOutput
+```
 
 ## Configuration
-- Project roots for `Enter-ProjectDirectory` are read from a user config file:
-  - Windows: `%APPDATA%/pwsh-profile/config.json`
-  - Linux/macOS: `~/.config/pwsh-profile/config.json`
-- Example content:
-  ```json
-  { "ProjectRoots": ["D:/projects/private", "D:/projects/work"] }
-  ```
-- You can also set temporarily via env: `PWSH_PROJECT_PATHS="D:/p1;D:/p2"`.
-- Use `Set-ProjectPaths -Paths @('D:/p1','D:/p2')` to write the config (supports `-WhatIf`).
+
+Project roots for `Enter-ProjectDirectory` are read from user config:
+
+- Windows: `%APPDATA%/pwsh-profile/config.json`
+- Linux/macOS: `~/.config/pwsh-profile/config.json`
+
+Example:
+
+```json
+{ "ProjectRoots": ["D:/projects/private", "D:/projects/work"] }
+```
+
+Set paths permanently:
+
+```powershell
+Set-ProjectPaths -Paths @('D:/p1','D:/p2')
+```
+
+Set paths temporarily for the current environment:
+
+```powershell
+$env:PWSH_PROJECT_PATHS = 'D:/p1;D:/p2'
+```
 
 ## Performance
-- The profile uses true deferred init via `PowerShell.OnIdle` to keep first prompt fast.
-- Measure load time: `pwsh -File ./test-loading-time.ps1 -Iterations 20`.
-- Env toggles:
-  - `PWSH_PROMPT=plain|posh|starship` to choose prompt engine (default: posh if available).
-  - `PWSH_PREDICTION=plugin` to enable PSReadLine HistoryAndPlugin (default: history only).
-  - `PWSH_PROFILE_COMPLETIONS=0` to skip external completions init (volta, pixi, starship, zoxide, mise).
-  - `PWSH_PROFILE_IMPORT_OPTIONAL=1` to import optional modules (Terminal-Icons, PSFzf).
+
+The profile uses deferred initialization via `PowerShell.OnIdle` to keep the first prompt fast. Measure load time with multiple iterations:
+
+```powershell
+pwsh -File ./test-loading-time.ps1 -Iterations 20
+```
+
+Environment toggles:
+
+| Variable | Values | Effect |
+| --- | --- | --- |
+| `PWSH_PROMPT` | `posh`, `starship` | Enables the selected prompt engine after the first prompt. Unset uses the default PowerShell prompt. |
+| `PWSH_PREDICTION` | `plugin` | Enables PSReadLine `HistoryAndPlugin`; otherwise history-only prediction is used. |
+| `PWSH_PROFILE_PSREADLINE` | `1` | Applies the profile's PSReadLine key bindings and colors after importing PSReadLine. |
+| `PWSH_PROFILE_COMPLETIONS` | `1` | Enables external completions for Volta, Pixi, Zoxide, Mise, and Kiro. |
+| `PWSH_PROFILE_IMPORT_OPTIONAL` | `1` | Imports optional profile modules, including PSMenu, InteractiveMenu, CompletionPredictor, ImportDotEnv, Terminal-Icons, and PSFzf. |
+| `PWSH_PROFILE_GIT_WT` | `1` | Enables `git-wt` shell integration after the first prompt. |
+
+`ImportDotEnv` remains available when optional modules are imported, but profile startup never loads a `.env` file or enables directory-change integration. Enable it manually with `Enable-ImportDotEnvCdIntegration` when wanted.
+
+## Repository Layout
+
+```text
+profile.ps1                         # PowerShell profile entry point
+functions/                          # Area-based helper scripts
+PwshProfile/                        # Importable module wrapper
+scripts/Invoke-Smoketests.ps1       # Non-destructive smoke-test harness
+setup.ps1                           # Symlink setup script for $PROFILE
+test-loading-time.ps1               # Startup timing script
+PSScriptAnalyzerSettings.psd1        # Static-analysis settings
+```

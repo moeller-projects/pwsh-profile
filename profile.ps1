@@ -65,58 +65,27 @@ if ([string]::IsNullOrEmpty($ProfileRepoFullPath)) {
     return
 }
 $ProfileRepoPath = [System.IO.Path]::GetDirectoryName($ProfileRepoFullPath)
-# Add module path for autoload/import
-# Important: PSModulePath entries should point to a directory that CONTAINS module folders/files,
-# not the module folder itself. Our module lives under "$ProfileRepoPath/PwshProfile",
-# so we add the repo root to PSModulePath.
+# Add the repository root for ad hoc module imports.
 $modulesRoot = $ProfileRepoPath
 if ([System.IO.Directory]::Exists($modulesRoot) -and ($env:PSModulePath -notlike "*${modulesRoot}*")) {
-    $env:PSModulePath = "$modulesRoot;" + $env:PSModulePath
+    $env:PSModulePath = "$modulesRoot$([System.IO.Path]::PathSeparator)$env:PSModulePath"
 }
-Write-Verbose "Module path ensured: $modulesRoot"
 
-Write-Verbose "Initial utility functions and paths resolved at $($profileStopwatch.ElapsedMilliseconds)ms"
+$moduleManifest = Join-Path $ProfileRepoPath 'PwshProfile/PwshProfile.psd1'
+try {
+    Import-Module -Name $moduleManifest -Global -ErrorAction Stop
+}
+catch {
+    Write-Error "Failed to import profile functions: $($_.Exception.Message)"
+    return
+}
+
+Write-Verbose "Profile functions loaded at $($profileStopwatch.ElapsedMilliseconds)ms"
 
 # --- DEFERRED INITIALIZATION USING REGISTER-ENGINEEVENT (OnIdle) ---
 
-if (Test-IsInteractive -eq $true) {
-    # Try to initialize prompt theme early to ensure first-render prompt
-    $global:ProfilePromptInitializedEarly = $false
-    $global:ProfileLoadingPromptActive = $false
-    try {
-        $earlyChoice = $Env:PWSH_PROMPT
-        switch ($earlyChoice) {
-            'plain' { }
-            'starship' {
-                if (Get-Command starship -ErrorAction SilentlyContinue) {
-                    $init = starship init powershell | Out-String
-                    & ([ScriptBlock]::Create($init))
-                    $cmd = Get-Command prompt -ErrorAction SilentlyContinue
-                    if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'starship')) {
-                        $global:ProfilePromptInitializedEarly = $true
-                    }
-                }
-            }
-            default {
-                if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
-                    $init = oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String
-                    & ([ScriptBlock]::Create($init))
-                    $cmd = Get-Command prompt -ErrorAction SilentlyContinue
-                    if ($null -ne $cmd -and $null -ne $cmd.ScriptBlock -and ($cmd.ScriptBlock.ToString() -match 'oh-my-posh|Set-PoshPrompt')) {
-                        $global:ProfilePromptInitializedEarly = $true
-                    }
-                }
-            }
-        }
-    }
-    catch { }
-
-    # Temporary prompt only if theme not yet available
-    if (-not $global:ProfilePromptInitializedEarly) {
-        $global:ProfileLoadingPromptActive = $true
-        function prompt { "[loading]: PS $($ExecutionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
-    }
-
+if (Test-IsInteractive) {
+    if ($Env:PWSH_PROFILE_PSREADLINE -eq '1') {
     # Early PSReadLine initialization (for immediate editing experience)
     try {
         if (-not (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue)) {
@@ -176,12 +145,13 @@ if (Test-IsInteractive -eq $true) {
                 $sensitivePatterns = @('password', 'secret', 'token', 'apikey', 'connectionstring')
                 return -not ($sensitivePatterns | Where-Object { $line -match $_ })
             }
-            Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+            Set-PSReadLineOption -PredictionSource $prediction
             Set-PSReadLineOption -MaximumHistoryCount 10000
             Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
         }
     }
     catch { }
+    }
 
     # Set initial window title
     $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
@@ -194,70 +164,71 @@ if (Test-IsInteractive -eq $true) {
         if ($script:ProfileDeferredInitDone) { return }
         $script:ProfileDeferredInitDone = $true
         try {
-            # Single module for all deferred initialization
-            New-Module -Name 'ProfileDeferredInitModule' -ScriptBlock {
-                # Import our functions via module for autoload
-                try { Import-Module PwshProfile -ErrorAction Stop } catch { Write-Verbose ("PwshProfile import failed: {0}" -f $_.Exception.Message) }
+            if (Get-Command Import-RequiredModules -ErrorAction SilentlyContinue) {
+                Import-RequiredModules
+            }
 
-
-                # Load optional modules (PSMenu, etc.) and completions if enabled
-                if (Get-Command Import-RequiredModules -ErrorAction SilentlyContinue) {
-                    Import-RequiredModules
+            $editor = foreach ($cmd in 'nvim', 'pvim', 'vim', 'vi', 'code', 'notepad++', 'sublime_text') {
+                if (Get-Command $cmd -ErrorAction SilentlyContinue) {
+                    $cmd
+                    break
                 }
+            }
+            if (-not $editor) { $editor = 'notepad' }
+            $env:EDITOR = $editor
+            if ($editor -ne 'vim') {
+                Set-Alias -Name vim -Value $editor -Scope Global
+            }
 
-                # EDITOR setup
-                $EDITOR = foreach ($cmd in 'nvim', 'pvim', 'vim', 'vi', 'code', 'notepad++', 'sublime_text') { if (Get-Command $cmd -EA SilentlyContinue) { $cmd; break } }
-                if (-not $EDITOR) { $EDITOR = 'notepad' }
-                Set-Alias -Name vim -Value $EDITOR
-                Export-ModuleMember -Alias vim
+            if ($Env:PWSH_PROMPT -eq 'starship' -and (Get-Command starship -ErrorAction SilentlyContinue)) {
+                & ([ScriptBlock]::Create((starship init powershell | Out-String)))
+            }
+            elseif ($Env:PWSH_PROMPT -eq 'posh' -and (Get-Command oh-my-posh -ErrorAction SilentlyContinue)) {
+                & ([ScriptBlock]::Create((oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String)))
+            }
 
-                # dotnet completer
-                if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-                    $dotnetCompleter = {
-                        param($wordToComplete, $commandAst, $cursorPosition)
-                        dotnet complete --position $cursorPosition $commandAst.ToString() |
-                        ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
-                    }
-                    Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $dotnetCompleter
+            if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+                $dotnetCompleter = {
+                    param($wordToComplete, $commandAst, $cursorPosition)
+                    dotnet complete --position $cursorPosition $commandAst.ToString() |
+                    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
                 }
+                Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $dotnetCompleter
+            }
 
-                # az completer (guard short prefixes)
-                if (Get-Command az -ErrorAction SilentlyContinue) {
-                    Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
-                        param($commandName, $wordToComplete, $cursorPosition)
-                        if ([string]::IsNullOrWhiteSpace($wordToComplete) -or $wordToComplete.Length -lt 2) { return }
-                        $completion_file = [System.IO.Path]::GetTempFileName()
-                        try {
-                            $env:ARGCOMPLETE_USE_TEMPFILES = 1
-                            $env:_ARGCOMPLETE_STDOUT_FILENAME = $completion_file
-                            $env:COMP_LINE = $wordToComplete
-                            $env:COMP_POINT = $cursorPosition
-                            $env:_ARGCOMPLETE = 1
-                            $env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
-                            $env:_ARGCOMPLETE_IFS = "`n"
-                            $env:_ARGCOMPLETE_SHELL = 'powershell'
-                            az 2>&1 | Out-Null
-                            [System.IO.File]::ReadAllLines($completion_file) | Sort-Object | ForEach-Object {
-                                [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_)
-                            }
+            if (Get-Command az -ErrorAction SilentlyContinue) {
+                Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
+                    param($commandName, $wordToComplete, $cursorPosition)
+                    if ([string]::IsNullOrWhiteSpace($wordToComplete) -or $wordToComplete.Length -lt 2) { return }
+                    $completionFile = [System.IO.Path]::GetTempFileName()
+                    try {
+                        $env:ARGCOMPLETE_USE_TEMPFILES = 1
+                        $env:_ARGCOMPLETE_STDOUT_FILENAME = $completionFile
+                        $env:COMP_LINE = $wordToComplete
+                        $env:COMP_POINT = $cursorPosition
+                        $env:_ARGCOMPLETE = 1
+                        $env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
+                        $env:_ARGCOMPLETE_IFS = "`n"
+                        $env:_ARGCOMPLETE_SHELL = 'powershell'
+                        az 2>&1 | Out-Null
+                        [System.IO.File]::ReadAllLines($completionFile) | Sort-Object | ForEach-Object {
+                            [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_)
                         }
-                        finally {
-                            Remove-Item -ErrorAction SilentlyContinue $completion_file
-                            Remove-Item Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL -ErrorAction SilentlyContinue
-                        }
+                    }
+                    finally {
+                        Remove-Item -ErrorAction SilentlyContinue $completionFile
+                        Remove-Item Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL -ErrorAction SilentlyContinue
                     }
                 }
+            }
 
-                # External completions (volta, pixi, starship, zoxide, mise) only if enabled
-                if ($Env:PWSH_PROFILE_COMPLETIONS -ne '0') {
-                    if (Get-Command Initialize-Completion -ErrorAction SilentlyContinue) {
-                        Initialize-Completion
-                    }
-                }
-            } | Import-Module -Global
+            if ($Env:PWSH_PROFILE_COMPLETIONS -eq '1' -and (Get-Command Initialize-Completion -ErrorAction SilentlyContinue)) {
+                Initialize-Completion
+            }
 
-            # EDITOR setup
-            # (additional EDITOR/completers moved inside ProfileDeferredInitModule)
+            if ($Env:PWSH_PROFILE_GIT_WT -eq '1' -and (Get-Command git-wt -ErrorAction SilentlyContinue)) {
+                & ([ScriptBlock]::Create((git-wt config shell init powershell | Out-String)))
+            }
 
             # Stop the stopwatch and log final time (verbose-only)
             $sw = $ExecutionContext.SessionState.PSVariable.Get('profileStopwatch').Value
@@ -281,14 +252,6 @@ if (Test-IsInteractive -eq $true) {
         }
         finally {
             Unregister-Event -SourceIdentifier PowerShell.OnIdle -ErrorAction SilentlyContinue
-            # Restore default prompt only if we used the temporary loading prompt
-            try {
-                if ($global:ProfileLoadingPromptActive) {
-                    Remove-Item Function:prompt -ErrorAction SilentlyContinue
-                    $global:ProfileLoadingPromptActive = $false
-                }
-            }
-            catch { }
         }
     } | Out-Null
 }
@@ -298,8 +261,6 @@ if (Test-IsInteractive -eq $true) {
 function Invoke-ProfileReload { & $profile }
 function Edit-Profile { vim $PROFILE }
 Set-Alias -Name ep -Value Edit-Profile
-function winutil { irm https://christitus.com/win | iex }
-function winutildev { irm https://christitus.com/windev | iex }
 function admin {
     [CmdletBinding()]
     [Alias("su")]
@@ -343,4 +304,3 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."
 
-if (Get-Command git-wt -ErrorAction SilentlyContinue) { Invoke-Expression (& git-wt config shell init powershell | Out-String) }

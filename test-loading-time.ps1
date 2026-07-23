@@ -1,4 +1,3 @@
-$Iterations = $null
 param(
     [int]$Iterations = 20
 )

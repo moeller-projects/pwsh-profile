@@ -1,9 +1,6 @@
 @{
     # Keep interactive UX patterns, but still analyze everything else
-    ExcludeRules = @(
-        'PSAvoidUsingWriteHost',
-        'PSAvoidUsingInvokeExpression'
-    )
+    ExcludeRules = @('PSAvoidUsingWriteHost')
 
     Rules = @{
         # Allow certain non-standard verbs for interactive helpers
