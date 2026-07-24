@@ -10,6 +10,7 @@ function Initialize-Completion {
 
     if (Get-Command -Name zoxide -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing zoxide completions..."
+        Remove-Item -Path Alias:cd -Force -ErrorAction SilentlyContinue
         & ([ScriptBlock]::Create((zoxide init --cmd cd powershell | Out-String)))
     }
 
