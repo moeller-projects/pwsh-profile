@@ -1,3 +1,15 @@
+<#PSScriptInfo
+.VERSION 1.0.0
+.GUID 7f2b4a8c-3d1e-4c9f-a6b5-2e8d0f5c1a7b
+.AUTHOR moeller-projects
+.COMPANYNAME moeller-projects
+.COPYRIGHT (c) moeller-projects. All rights reserved.
+.DESCRIPTION Manages Azure database firewall rules and NSG rules for the current public IP address.
+.LICENSEURI https://github.com/moeller-projects/pwsh-profile/blob/main/LICENSE
+.PROJECTURI https://github.com/moeller-projects/pwsh-profile
+.RELEASENOTES Initial release.
+#>
+
 [CmdletBinding()]
 param (
     [string]$RulePrefix = "lukas-at-home",
@@ -23,6 +35,11 @@ param (
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Verify powershell-yaml module is available for YAML config parsing
+if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+    throw "The 'powershell-yaml' module is required to parse YAML config files. Install it with: Install-Module -Name powershell-yaml -Scope CurrentUser"
+}
 
 # ---------------------- Helper functions ----------------------
 
@@ -69,7 +86,7 @@ function Get-DefaultConfigPath
     return (Join-Path -Path $folder -ChildPath 'resources.yaml')
 }
 
-function Load-ResourcesFromConfig
+function Import-ResourcesFromConfig
 {
     param(
         [string]$Path
@@ -115,6 +132,7 @@ function Load-ResourcesFromConfig
 
 function Remove-SQLFirewallRules
 {
+    [CmdletBinding(SupportsShouldProcess)]
     param (
         [string]$serverName,
         [string]$resourceGroup,
@@ -158,6 +176,7 @@ function Remove-SQLFirewallRules
 
 function Remove-NSGRules
 {
+    [CmdletBinding(SupportsShouldProcess)]
     param (
         [string]$nsgName,
         [string]$resourceGroup,
@@ -199,7 +218,7 @@ function Remove-NSGRules
     }
 }
 
-function Manage-FirewallRules
+function Invoke-FirewallRuleManagement
 {
     param (
         [string]$serverName,
@@ -245,7 +264,7 @@ function Manage-FirewallRules
     return $result
 }
 
-function Manage-MongoAccessList
+function Invoke-MongoAccessListManagement
 {
     param (
         [string]$ProjectId,
@@ -263,7 +282,7 @@ function Manage-MongoAccessList
 
     try
     {
-        $args = @(
+        $cliArgs = @(
             'accessLists', 'create', $CurrentIp,
             '--type', 'ipAddress',
             '--comment', $RulePrefix,
@@ -272,15 +291,15 @@ function Manage-MongoAccessList
 
         if (-not [string]::IsNullOrWhiteSpace($ProjectId))
         {
-            $args += @('--projectId', $ProjectId)
+            $cliArgs += @('--projectId', $ProjectId)
         }
 
         if (-not [string]::IsNullOrWhiteSpace($AtlasProfile))
         {
-            $args += @('--profile', $AtlasProfile)
+            $cliArgs += @('--profile', $AtlasProfile)
         }
 
-        & atlas @args | Out-Null
+        & atlas @cliArgs | Out-Null
 
         if ($LASTEXITCODE -ne 0)
         {
@@ -298,7 +317,7 @@ function Manage-MongoAccessList
 }
 
 
-function Manage-NSGRules
+function Invoke-NSGRuleManagement
 {
     param (
         [string]$vmName,
@@ -505,7 +524,7 @@ if ($ShowConfigPath)
 $defaultResources = @()
 
 $resources = $null
-$configResources = Load-ResourcesFromConfig -Path $ConfigPath
+$configResources = Import-ResourcesFromConfig -Path $ConfigPath
 
 if ($configResources)
 {
@@ -578,7 +597,7 @@ foreach ($group in $groupedResources)
 
             "SQLServer"
             {
-                $fwResult = Manage-FirewallRules -serverName $resName `
+                $fwResult = Invoke-FirewallRuleManagement -serverName $resName `
                     -resourceGroup $resGroup `
                     -currentIp $currentIp `
                     -rulePrefix $RulePrefix
@@ -608,7 +627,7 @@ foreach ($group in $groupedResources)
 
             "VM"
             {
-                $nsgResult = Manage-NSGRules -vmName $resName `
+                $nsgResult = Invoke-NSGRuleManagement -vmName $resName `
                     -resourceGroup $resGroup `
                     -currentIp $currentIp `
                     -rulePrefix $RulePrefix `
@@ -663,7 +682,7 @@ foreach ($group in $groupedResources)
                     break
                 }
 
-                $mongoResult = Manage-MongoAccessList `
+                $mongoResult = Invoke-MongoAccessListManagement `
                     -ProjectId $projectId `
                     -AtlasProfile $atlasProfile `
                     -CurrentIp $currentIp `

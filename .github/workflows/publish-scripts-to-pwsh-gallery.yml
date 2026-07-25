@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish all scripts in ./scripts to PSGallery
+    name: Publish allowlisted scripts to PSGallery
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
           # Ensure NuGet provider exists
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
 
-      - name: Publish all scripts to PSGallery
+      - name: Publish allowlisted scripts to PSGallery
         if: github.event_name == 'push'
         env:
           PSGALLERY: ${{ secrets.PSGALLERY }}
@@ -41,15 +41,20 @@ jobs:
             exit 1
           }
 
-          $scripts = Get-ChildItem -Path "scripts" -Filter "*.ps1" -File -Recurse
-          if (-not $scripts) {
-            Write-Host "No .ps1 scripts found under ./scripts. Skipping publish."
-            exit 0
+          # Explicit allowlist — never publish Invoke-Smoketests.ps1 or other tooling scripts
+          $allowlist = @(
+            'scripts/add-database-firewall-rules.ps1',
+            'scripts/add-windows-defender-exclusions-for-jetbrains.ps1'
+          )
+
+          foreach ($relativePath in $allowlist) {
+            $fullPath = Join-Path $PWD $relativePath
+            if (-not (Test-Path $fullPath)) {
+              Write-Warning "Allowlisted script not found: $fullPath — skipping."
+              continue
+            }
+            Write-Host "Publishing $fullPath to PSGallery..."
+            Publish-Script -Path $fullPath -NuGetApiKey $env:PSGALLERY -Force
           }
 
-          foreach ($script in $scripts) {
-            Write-Host "Publishing $($script.FullName) to PSGallery..."
-            Publish-Script -Path $script.FullName -NuGetApiKey $env:PSGALLERY -Force
-          }
-
-          Write-Host "All scripts processed."
+          Write-Host "All allowlisted scripts processed."

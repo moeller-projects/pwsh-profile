@@ -1,3 +1,15 @@
+<#PSScriptInfo
+.VERSION 1.0.0
+.GUID 3a7c9e21-5b4d-4f8e-b2a1-9d0c6e7f3a15
+.AUTHOR moeller-projects
+.COMPANYNAME moeller-projects
+.COPYRIGHT (c) moeller-projects. All rights reserved.
+.DESCRIPTION Adds Windows Defender exclusions for WSL2 and JetBrains IDE performance issues.
+.LICENSEURI https://github.com/moeller-projects/pwsh-profile/blob/main/LICENSE
+.PROJECTURI https://github.com/moeller-projects/pwsh-profile
+.RELEASENOTES Initial release.
+#>
+
 # PowerShell script to add Windows Defender exclusions for WSL2 and JetBrains IDE performance issues
 #
 # For context please read this thread:

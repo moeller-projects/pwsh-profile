@@ -69,10 +69,10 @@ function Publish-FileShare {
             $uploadUri = "$baseApiUrl/$($credentials.id)/patch?dst=$($fileInfo.Name)&offset=0"
             # Form data creation might be optimized slightly, but Invoke-WebRequest handles it well
             if ($PSVersionTable.PSVersion.Major -ge 6) {
-                $uploadResponse = Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 60 -ErrorAction Stop
+                $null = Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 60 -ErrorAction Stop
             }
             else {
-                $uploadResponse = Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+                $null = Invoke-WebRequest -Method POST -Uri $uploadUri -Form @{file = $fileInfo } -ContentType "multipart/form-data" -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
             }
             $sizeLabel = ConvertTo-HumanReadableSize -Bytes $fileInfo.Length
             Write-Information "[DONE] $($fileInfo.Name) - $sizeLabel"
@@ -85,10 +85,10 @@ function Publish-FileShare {
     Write-Verbose "Finalizing upload..."
     $finalizeUri = "$baseApiUrl/$($credentials.id)/finalize"
     if ($PSVersionTable.PSVersion.Major -ge 6) {
-        $finalizeResponse = Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 30 -ErrorAction Stop
+        $null = Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -TimeoutSec 30 -ErrorAction Stop
     }
     else {
-        $finalizeResponse = Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $null = Invoke-WebRequest -Method POST -Uri $finalizeUri -Headers @{"x-auth-token" = $credentials.token } -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
     }
 
     $share = "https://get.hidrive.com/$($credentials.id)"
@@ -120,7 +120,7 @@ function Watch-File {
 }
 
 function New-EmptyFile {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [Alias('touch', 'nf')]
     param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path)
     $full = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $PWD.Path $Path }
@@ -139,14 +139,22 @@ function Find-File {
     [Alias('ff')]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name,
-        [switch]$Recurse = $true,
+        [bool]$Recurse = $true,
         [int]$MaxDepth = -1
     )
 
     $root = (Resolve-Path $PWD.Path).Path
     $pattern = "*$Name*"
     $depthLimit = if ($MaxDepth -ge 0) { $MaxDepth } else { [int]::MaxValue }
-    Write-Verbose "Searching for files matching '$pattern' in '$root' (Recurse: $($Recurse.IsPresent), MaxDepth: $MaxDepth)..."
+    Write-Verbose "Searching for files matching '$pattern' in '$root' (Recurse: $Recurse, MaxDepth: $MaxDepth)..."
+
+    # Delegate to fd if available for the recursive case
+    if ($Recurse -and (Get-Command fd -ErrorAction SilentlyContinue)) {
+        $fdArgs = @("--glob", $pattern, $root)
+        if ($MaxDepth -ge 0) { $fdArgs += @("--max-depth", $MaxDepth.ToString()) }
+        & fd @fdArgs
+        return
+    }
 
     try {
         if (-not $Recurse) {
@@ -155,13 +163,15 @@ function Find-File {
             }
         }
         else {
-            $stack = New-Object System.Collections.Stack
-            $stack.Push([pscustomobject]@{ Path = $root; Depth = 0 })
+            # DFS using plain strings (path) and a parallel depth tracker
+            $stack = [System.Collections.Generic.Stack[string]]::new()
+            $depthStack = [System.Collections.Generic.Stack[int]]::new()
+            $stack.Push($root)
+            $depthStack.Push(0)
 
             while ($stack.Count -gt 0) {
-                $current = $stack.Pop()
-                $currentPath = $current.Path
-                $currentDepth = $current.Depth
+                $currentPath = $stack.Pop()
+                $currentDepth = $depthStack.Pop()
 
                 try {
                     foreach ($file in [System.IO.Directory]::EnumerateFiles($currentPath, $pattern, [System.IO.SearchOption]::TopDirectoryOnly)) {
@@ -176,7 +186,8 @@ function Find-File {
 
                 try {
                     foreach ($dir in [System.IO.Directory]::EnumerateDirectories($currentPath, '*', [System.IO.SearchOption]::TopDirectoryOnly)) {
-                        $stack.Push([pscustomobject]@{ Path = $dir; Depth = $currentDepth + 1 })
+                        $stack.Push($dir)
+                        $depthStack.Push($currentDepth + 1)
                     }
                 }
                 catch [System.UnauthorizedAccessException] {
@@ -276,7 +287,7 @@ function Remove-ToRecycleBin {
 }
 
 function Set-ClipboardText {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [Alias('cpy')]
     param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Text)
     Set-Clipboard -Value $Text
@@ -404,21 +415,21 @@ function Update-FileText {
 }
 
 function Set-LocationParent {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [Alias('..')]
     param()
     Set-Location ..
 }
 
 function Set-LocationParentTwoLevels {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [Alias('...')]
     param()
     Set-Location ../..
 }
 
 function Set-LocationHome {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [Alias('~')]
     param()
     Set-Location ~

@@ -1,6 +1,6 @@
 # ai-functions.ps1
 function Set-AIConfiguration {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param()
     Write-Host "Configuring AI settings" -ForegroundColor Cyan
     $provider = Read-Host "Enter AI Provider (e.g., openai)"
@@ -35,7 +35,7 @@ function Invoke-ChatGpt {
     [CmdletBinding()]
     [Alias("ask")]
     param (
-        [string[]]$Args,
+        [string[]]$Prompts,
         [switch]$UseShell
     )
 
@@ -51,9 +51,14 @@ function Invoke-ChatGpt {
         return
     }
 
+    if (-not (Get-Command tgpt -ErrorAction SilentlyContinue)) {
+        Write-Error "tgpt not found in PATH. Install it from https://github.com/aandrew-me/tgpt to use Invoke-ChatGpt."
+        return
+    }
+
     $tgptArgs = @()
     if ($UseShell) { $tgptArgs += '-s' }
-    $prompt = if ($Args) { ($Args -join ' ') } else { '' }
+    $prompt = if ($Prompts) { ($Prompts -join ' ') } else { '' }
     if ($prompt -ne '') { $tgptArgs += '--'; $tgptArgs += $prompt }
     Write-Verbose ("Executing AI command: tgpt {0}" -f ($tgptArgs -join ' '))
     & tgpt @tgptArgs
