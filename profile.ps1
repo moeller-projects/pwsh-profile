@@ -126,7 +126,7 @@ if (Test-IsInteractive) {
             }
             Set-PSReadLineOption -AddToHistoryHandler {
                 param($line)
-                $sensitivePatterns = @('(password|passwd|secret|token|apikey|api_key|connectionstring)\s*[:=]')
+                $sensitivePatterns = @('(?i)(password|passwd|secret|token|apikey|api_key|connectionstring)\s*[:=]')
                 return -not ($sensitivePatterns | Where-Object { $line -match $_ })
             }
             Set-PSReadLineOption -MaximumHistoryCount 10000

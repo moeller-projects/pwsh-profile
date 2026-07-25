@@ -100,7 +100,7 @@ function export {
         [Parameter(Position = 1)][AllowEmptyString()][string]$Value
     )
     # Support single-argument NAME=VALUE form
-    if (-not $PSBoundParameters.ContainsKey('Value') -and $Name -match '^([^=]+)=(.*)$') {
+    if (-not $PSBoundParameters.ContainsKey('Value') -and $Name -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
         Set-Item -Force -Path "env:$($Matches[1])" -Value $Matches[2]
     }
     else {
