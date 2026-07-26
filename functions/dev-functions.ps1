@@ -128,11 +128,18 @@ function uptime {
             $uptimeSpan = (Get-Date) - $bootTime
         }
         else {
-            # Linux/macOS: read /proc/uptime
-            $procUptime = [System.IO.File]::ReadAllText('/proc/uptime').Trim().Split()[0]
-            $uptimeSeconds = [double]$procUptime
-            $bootTime = (Get-Date).AddSeconds(-$uptimeSeconds)
-            $uptimeSpan = New-TimeSpan -Seconds $uptimeSeconds
+            if (Get-Command sysctl -ErrorAction SilentlyContinue) {
+                $bootOutput = sysctl -n kern.boottime 2>$null
+                if ($bootOutput -match 'sec\s*=\s*(\d+)') {
+                    $bootTime = [DateTimeOffset]::FromUnixTimeSeconds([long]$Matches[1]).LocalDateTime
+                }
+            }
+            if (-not $bootTime) {
+                $procUptime = [System.IO.File]::ReadAllText('/proc/uptime').Trim().Split()[0]
+                $uptimeSeconds = [double]$procUptime
+                $bootTime = (Get-Date).AddSeconds(-$uptimeSeconds)
+            }
+            $uptimeSpan = (Get-Date) - $bootTime
             Write-Host "System started on: $($bootTime.ToString('yyyy-MM-dd HH:mm:ss'))" -ForegroundColor DarkGray
         }
         Write-Host ("Uptime: {0} days, {1} hours, {2} minutes, {3} seconds" -f $uptimeSpan.Days, $uptimeSpan.Hours, $uptimeSpan.Minutes, $uptimeSpan.Seconds) -ForegroundColor Blue

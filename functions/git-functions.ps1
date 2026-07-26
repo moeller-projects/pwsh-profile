@@ -221,48 +221,35 @@ function Get-BranchStatus {
         Behind         = 0
     }
 
-    # Get remote tracking branch
-    $remoteTracking = git for-each-ref --format='%(upstream:short)' "refs/heads/$Branch" 2>$null
-    $status.RemoteTracking = $remoteTracking
-
-    if (-not $remoteTracking) {
+    $ref = git for-each-ref --format='%(upstream:short)|%(upstream:track)' "refs/heads/$Branch" 2>$null
+    if (-not $ref) {
         $status.Reason = "No remote tracking branch"
         return $status
     }
 
-    # Check if remote branch exists
-    git rev-parse --verify --quiet "refs/remotes/$remoteTracking" *> $null
-    $remoteExists = ($LASTEXITCODE -eq 0)
-    if (-not $remoteExists) {
+    $parts = $ref -split '\|', 2
+    $status.RemoteTracking = $parts[0].Trim()
+    $track = if ($parts.Count -gt 1) { $parts[1].Trim() } else { '' }
+    if ($track -match '\[gone\]') {
         $status.Reason = "Remote branch does not exist"
         return $status
     }
 
-    # Get ahead/behind counts
-    $aheadBehind = git rev-list --left-right --count "$remoteTracking...$Branch" 2>$null
-    if ($aheadBehind) {
-        $counts = $aheadBehind -split '\s+'
-        $status.Ahead = [int]$counts[0]  # commits ahead
-        $status.Behind = [int]$counts[1] # commits behind
-    }
+    if ($track -match 'ahead\s+(\d+)') { $status.Ahead = [int]$matches[1] }
+    if ($track -match 'behind\s+(\d+)') { $status.Behind = [int]$matches[1] }
 
-    # Determine if safe to delete
     if ($status.Ahead -eq 0 -and $status.Behind -eq 0) {
-        # Branches are equal
         $status.SafeToDelete = $true
         $status.Reason = "Branches are identical"
     }
     elseif ($status.Ahead -eq 0 -and $status.Behind -gt 0) {
-        # Local branch is behind remote (safe to delete since remote has newer commits)
         $status.SafeToDelete = $true
         $status.Reason = "Local branch is behind remote (remote has new commits)"
     }
     elseif ($status.Ahead -gt 0 -and $status.Behind -eq 0) {
-        # Local branch is ahead of remote (NOT safe to delete)
         $status.Reason = "Local branch has commits not pushed to remote"
     }
     elseif ($status.Ahead -gt 0 -and $status.Behind -gt 0) {
-        # Branches have diverged (NOT safe to delete)
         $status.Reason = "Branches have diverged"
     }
     else {
@@ -272,8 +259,20 @@ function Get-BranchStatus {
     return $status
 }
 
+function Get-GitRepositoryPaths {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Root
+    )
+
+    Get-ChildItem -Path $Root -Recurse -Directory -Force -Filter .git -ErrorAction SilentlyContinue |
+        ForEach-Object { Split-Path $_.FullName -Parent } |
+        Sort-Object -Unique
+}
+
 function Optimize-GitRepository {
     <#
+
     .SYNOPSIS
         Cleans up git repositories by removing safe-to-delete branches and shrinking repository size.
 
@@ -565,16 +564,14 @@ function Optimize-GitRepository {
     # Main execution logic
     if ($Recursive) {
         Write-Host "[DRY]  Searching for git repositories recursively under: $RepoPath" -ForegroundColor Cyan
-        $repos = Get-ChildItem -Path $RepoPath -Recurse -Directory -Force -Filter .git -ErrorAction SilentlyContinue |
-        ForEach-Object { Split-Path $_.FullName -Parent } |
-        Sort-Object -Unique
+        $repos = @(Get-GitRepositoryPaths -Root $RepoPath)
 
-        if (-not $repos -or $repos.Count -eq 0) {
+        if (-not $repos) {
             Write-Host "[FAIL] No git repositories found" -ForegroundColor Yellow
             return
         }
 
-        Write-Host "📋 Found $($repos.Count) repositories to process" -ForegroundColor Cyan
+        Write-Host "[INFO] Found $($repos.Count) repositories to process" -ForegroundColor Cyan
 
         foreach ($repo in $repos) {
             if ($PSCmdlet.ShouldProcess($repo, 'Process repository')) {

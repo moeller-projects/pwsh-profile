@@ -115,28 +115,34 @@ export SMOKE_EXPORTED=yes
         Remove-Item $envFile -ErrorAction SilentlyContinue
     }
     Test-Case 'Enter-ProjectDirectory not-found warning' {
-        Enter-ProjectDirectory -ProjectName '__no_such_project_xyz__' -WarningAction SilentlyContinue
-        # Just ensure the call doesn't throw and returns gracefully
+        $warnings = @()
+        Enter-ProjectDirectory -ProjectName '__no_such_project_xyz__' -WarningVariable warnings -WarningAction SilentlyContinue
+        if (-not ($warnings -match "Project '__no_such_project_xyz__' not found")) {
+            throw 'Missing project warning was not emitted'
+        }
+    }
+
+    Test-Case 'Set-ProjectPaths/Get-ProjectPaths round-trip' {
+        $tempCfg = Join-Path ([System.IO.Path]::GetTempPath()) ("pwsh-profile-smoke-cfg-" + [System.Guid]::NewGuid() + ".json")
+        try {
+            $env:PWSH_PROFILE_CONFIG_OVERRIDE = $tempCfg
+            $testPaths = @('/tmp/proj1', '/tmp/proj2')
+            Set-ProjectPaths -Paths $testPaths
+            $roundTrip = @(Get-ProjectPaths)
+            if ($roundTrip.Count -ne $testPaths.Count -or
+                (@($roundTrip) -join '|') -ne (@($testPaths) -join '|')) {
+                throw "Config round-trip failed: $($roundTrip -join ', ')"
+            }
+        }
+        finally {
+            Remove-Item Env:\PWSH_PROFILE_CONFIG_OVERRIDE -ErrorAction SilentlyContinue
+            Remove-Item $tempCfg -ErrorAction SilentlyContinue
+        }
     }
     Test-Case 'Get-ProjectPaths returns array' {
         $paths = @(Get-ProjectPaths)
         # An empty array is valid when no project config exists; just verify it doesn't throw
         if ($null -eq $paths) { throw 'Get-ProjectPaths returned null' }
-    }
-    Test-Case 'Set-ProjectPaths round-trip' {
-        $tempCfg = Join-Path ([System.IO.Path]::GetTempPath()) ("pwsh-profile-smoke-cfg-" + [System.Guid]::NewGuid() + ".json")
-        try {
-            $env:PWSH_PROFILE_CONFIG_OVERRIDE = $tempCfg
-            $testPaths = @('/tmp/proj1', '/tmp/proj2')
-            # Use direct file write since we can't override Get-ProjectConfigPath easily
-            @{ ProjectRoots = $testPaths } | ConvertTo-Json | Set-Content -LiteralPath $tempCfg -Encoding UTF8
-            $json = Get-Content -LiteralPath $tempCfg -Raw | ConvertFrom-Json
-            if ($json.ProjectRoots.Count -ne 2) { throw 'Config round-trip failed' }
-        }
-        finally {
-            Remove-Item $tempCfg -ErrorAction SilentlyContinue
-            Remove-Item Env:\PWSH_PROFILE_CONFIG_OVERRIDE -ErrorAction SilentlyContinue
-        }
     }
     Test-Case 'uptime runs' { uptime }
     Test-Case 'pgrep/pkill harmless on unknown' { pgrep 'unlikely-proc-name' -ErrorAction SilentlyContinue | Out-Null; pkill 'unlikely-proc-name' }

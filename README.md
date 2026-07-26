@@ -142,7 +142,6 @@ The following public names have been removed:
 | `cna` / `New-NetworkAccessExceptionForResources` | Remote download-and-execute pattern; removed by security policy | Use `scripts/add-database-firewall-rules.ps1` |
 | `Format-FileSize` | Duplicate of `ConvertTo-HumanReadableSize` | Use `ConvertTo-HumanReadableSize` |
 
-`PWSH_PROFILE_AUTO_INSTALL` is no longer supported. If optional modules are missing, the profile emits a `Write-Warning` listing the install command instead of silently running `Install-Module`.
 
 Project-jumping functions (`Enter-ProjectDirectory`, `Get-ProjectPaths`, `Set-ProjectPaths`, `Get-ProjectConfigPath`) have moved from `PwshProfile.Dev` to a dedicated `PwshProfile.Projects` module. Autoloading is unaffected; the commands still work without explicit imports.
 

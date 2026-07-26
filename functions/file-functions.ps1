@@ -373,6 +373,13 @@ function Get-VolumeUsage {
     [CmdletBinding()]
     [Alias('df')]
     param()
+
+    $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
+    if (-not $isWindowsCompat) {
+        Write-Warning "Get-VolumeUsage requires Windows (uses Get-Volume)."
+        return
+    }
+
     Get-Volume
 }
 

@@ -5,6 +5,10 @@ $script:ProjectPathsCache = $null
 $script:ProjectPathsCacheTime = [datetime]::MinValue
 
 function Get-ProjectConfigPath {
+    if ($env:PWSH_PROFILE_CONFIG_OVERRIDE) {
+        return $env:PWSH_PROFILE_CONFIG_OVERRIDE
+    }
+
     if ($IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')) {
         $base = $env:APPDATA
         if (-not $base) { $base = Join-Path $HOME 'AppData/Roaming' }

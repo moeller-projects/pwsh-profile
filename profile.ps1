@@ -1,5 +1,11 @@
 # Initialize a stopwatch at the very beginning of the profile (verbose-only)
 $profileStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$profileStageTimings = [ordered]@{}
+function Set-ProfileTimingCheckpoint {
+    param([Parameter(Mandatory)][string]$Stage)
+    $profileStageTimings[$Stage] = $profileStopwatch.ElapsedMilliseconds
+}
+
 Write-Verbose "Profile loading started at $($profileStopwatch.ElapsedMilliseconds)ms"
 
 # Essential and fast-loading configurations (these run immediately)
@@ -9,6 +15,8 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
 
 
 Write-Verbose "Core configurations loaded at $($profileStopwatch.ElapsedMilliseconds)ms"
+Set-ProfileTimingCheckpoint -Stage 'core'
+
 
 
 # --- Utility Functions (Keep synchronous as they are used early and are fast) ---
@@ -65,6 +73,8 @@ if ([System.IO.Directory]::Exists($modulesRoot) -and -not ($pathEntries | Where-
 }
 
 # Area modules autoload individual commands through the module path above.
+Set-ProfileTimingCheckpoint -Stage 'module-path'
+
 
 # --- DEFERRED INITIALIZATION USING REGISTER-ENGINEEVENT (OnIdle) ---
 
@@ -229,6 +239,8 @@ if (Test-IsInteractive) {
         }
     } | Out-Null
 }
+Set-ProfileTimingCheckpoint -Stage 'deferred-registered'
+
 
 # --- Always available utility functions / aliases (fast and core to profile management) ---
 # These are kept outside the deferred block because they are fundamental profile management tools and are fast to load.
@@ -279,14 +291,18 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
     }
 }
 
+$profileStageTimings['synchronous-complete'] = $profileStopwatch.ElapsedMilliseconds
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."
+
 
 # Optional timing output (PWSH_PROFILE_TIMING=1)
 if ($env:PWSH_PROFILE_TIMING -eq '1') {
     Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {
         try {
-            $elapsed = $profileStopwatch.ElapsedMilliseconds
-            Write-Host "[TIMING] Profile total elapsed at idle: ${elapsed}ms" -ForegroundColor DarkCyan
+            foreach ($checkpoint in $profileStageTimings.GetEnumerator()) {
+                Write-Host "[TIMING] $($checkpoint.Key): $($checkpoint.Value)ms" -ForegroundColor DarkCyan
+            }
+            Write-Host "[TIMING] idle: $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
         }
         catch { Write-Verbose "TIMING stage failed: $_" }
     } | Out-Null
