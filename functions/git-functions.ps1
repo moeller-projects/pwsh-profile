@@ -1,3 +1,6 @@
+# Script-scope cache for git maintenance availability (probed once per session)
+$script:GitMaintenanceAvailable = $null
+
 function Remove-MergedGitBranches {
     <#
     .SYNOPSIS
@@ -84,7 +87,8 @@ function Switch-GitBranch {
             Write-Error "fzf not found in PATH. Install fzf to use Git-Go."
             $exitEarly = $true; return
         }
-        if (-not ([System.IO.Directory]::Exists((Join-Path (Get-Location).Path ".git")))) {
+        git rev-parse --is-inside-work-tree *>$null
+        if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] This is not a Git repository!" -ForegroundColor Red
             $exitEarly = $true; return
         }
@@ -207,23 +211,6 @@ function Get-RepoSize {
     }
 }
 
-function Format-FileSize {
-    param([long]$Size)
-
-    if ($Size -ge 1GB) {
-        return "{0:N2} GB" -f ($Size / 1GB)
-    }
-    elseif ($Size -ge 1MB) {
-        return "{0:N2} MB" -f ($Size / 1MB)
-    }
-    elseif ($Size -ge 1KB) {
-        return "{0:N2} KB" -f ($Size / 1KB)
-    }
-    else {
-        return "{0} bytes" -f $Size
-    }
-}
-
 function Get-BranchStatus {
     param([string]$Branch)
 
@@ -235,48 +222,35 @@ function Get-BranchStatus {
         Behind         = 0
     }
 
-    # Get remote tracking branch
-    $remoteTracking = git for-each-ref --format='%(upstream:short)' "refs/heads/$Branch" 2>$null
-    $status.RemoteTracking = $remoteTracking
-
-    if (-not $remoteTracking) {
+    $ref = git for-each-ref --format='%(upstream:short)|%(upstream:track)' "refs/heads/$Branch" 2>$null
+    if (-not $ref) {
         $status.Reason = "No remote tracking branch"
         return $status
     }
 
-    # Check if remote branch exists
-    git rev-parse --verify --quiet "refs/remotes/$remoteTracking" *> $null
-    $remoteExists = ($LASTEXITCODE -eq 0)
-    if (-not $remoteExists) {
+    $parts = $ref -split '\|', 2
+    $status.RemoteTracking = $parts[0].Trim()
+    $track = if ($parts.Count -gt 1) { $parts[1].Trim() } else { '' }
+    if ($track -match '\[gone\]') {
         $status.Reason = "Remote branch does not exist"
         return $status
     }
 
-    # Get ahead/behind counts
-    $aheadBehind = git rev-list --left-right --count "$remoteTracking...$Branch" 2>$null
-    if ($aheadBehind) {
-        $counts = $aheadBehind -split '\s+'
-        $status.Ahead = [int]$counts[0]  # commits ahead
-        $status.Behind = [int]$counts[1] # commits behind
-    }
+    if ($track -match 'ahead\s+(\d+)') { $status.Ahead = [int]$matches[1] }
+    if ($track -match 'behind\s+(\d+)') { $status.Behind = [int]$matches[1] }
 
-    # Determine if safe to delete
     if ($status.Ahead -eq 0 -and $status.Behind -eq 0) {
-        # Branches are equal
         $status.SafeToDelete = $true
         $status.Reason = "Branches are identical"
     }
     elseif ($status.Ahead -eq 0 -and $status.Behind -gt 0) {
-        # Local branch is behind remote (safe to delete since remote has newer commits)
         $status.SafeToDelete = $true
         $status.Reason = "Local branch is behind remote (remote has new commits)"
     }
     elseif ($status.Ahead -gt 0 -and $status.Behind -eq 0) {
-        # Local branch is ahead of remote (NOT safe to delete)
         $status.Reason = "Local branch has commits not pushed to remote"
     }
     elseif ($status.Ahead -gt 0 -and $status.Behind -gt 0) {
-        # Branches have diverged (NOT safe to delete)
         $status.Reason = "Branches have diverged"
     }
     else {
@@ -286,8 +260,20 @@ function Get-BranchStatus {
     return $status
 }
 
+function Get-GitRepositoryPaths {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Root
+    )
+
+    Get-ChildItem -Path $Root -Recurse -Directory -Force -Filter .git -ErrorAction SilentlyContinue |
+        ForEach-Object { Split-Path $_.FullName -Parent } |
+        Sort-Object -Unique
+}
+
 function Optimize-GitRepository {
     <#
+
     .SYNOPSIS
         Cleans up git repositories by removing safe-to-delete branches and shrinking repository size.
 
@@ -342,19 +328,21 @@ function Optimize-GitRepository {
 
         [switch]$Aggressive,
 
+        [switch]$Force,
+
         [switch]$CollectSizeMetrics,
 
         [string[]]$ProtectedBranches = @('main', 'master', 'dev', 'develop')
     )
 
-    function Process-SingleRepo {
+    function Invoke-SingleRepoMaintenance {
         param(
             [string]$Path,
             [bool]$IsDryRun
         )
 
         if (-not (Test-Path (Join-Path $Path '.git'))) {
-            Write-Host "❌ Not a git repository: $Path" -ForegroundColor Red
+            Write-Host "[FAIL] Not a git repository: $Path" -ForegroundColor Red
             return
         }
 
@@ -364,32 +352,32 @@ function Optimize-GitRepository {
         try {
             Set-Location $Path
 
-            Write-Host "`n" + "═"*70 -ForegroundColor Blue
-            if ($IsDryRun) { Write-Host "🔍 DRY RUN - REPOSITORY: $repoName" -ForegroundColor Yellow -BackgroundColor DarkBlue }
-            else { Write-Host "📁 REPOSITORY: $repoName" -ForegroundColor White -BackgroundColor DarkBlue }
-            Write-Host "📍 PATH: $Path" -ForegroundColor Gray
+            Write-Host -Object ("`n" + "═"*70) -ForegroundColor Blue
+            if ($IsDryRun) { Write-Host "[DRY]  DRY RUN - REPOSITORY: $repoName" -ForegroundColor Yellow -BackgroundColor DarkBlue }
+            else { Write-Host "[DIR]  REPOSITORY: $repoName" -ForegroundColor White -BackgroundColor DarkBlue }
+            Write-Host "[PATH] PATH: $Path" -ForegroundColor Gray
             Write-Host "═"*70 -ForegroundColor Blue
 
             # Get initial repo size if metrics requested
             $initialSize = $null
             if ($CollectSizeMetrics) {
                 $initialSize = Get-RepoSize -Path $Path
-                Write-Host "📊 Initial repository size: $(Format-FileSize $initialSize)" -ForegroundColor Gray
+                Write-Host "[INFO] Initial repository size: $(ConvertTo-HumanReadableSize $initialSize)" -ForegroundColor Gray
             }
 
             # Show current branch
             $currentBranch = git branch --show-current 2>$null
-            if ($currentBranch) { Write-Host "🌿 Current Branch: $currentBranch" -ForegroundColor Cyan }
+            if ($currentBranch) { Write-Host "[GIT]  Current Branch: $currentBranch" -ForegroundColor Cyan }
 
             # Optionally fetch
             if ($Fetch) {
-                Write-Host "`n🔄 Fetching latest from remote..." -ForegroundColor Yellow
+                Write-Host "`n[SYNC] Fetching latest from remote..." -ForegroundColor Yellow
                 if (-not $IsDryRun) { if ($PSCmdlet.ShouldProcess($Path, 'git fetch --all --prune')) { git fetch --all --prune 2>$null } }
                 else { Write-Host "(dry run) Would: git fetch --all --prune" -ForegroundColor DarkYellow }
             }
 
             # Show status before cleanup
-            Write-Host "`n📊 Status before cleanup:" -ForegroundColor Yellow
+            Write-Host "`n[INFO] Status before cleanup:" -ForegroundColor Yellow
             git status --short --branch 2>$null
 
             # Build branch -> metadata mapping without checkout
@@ -425,13 +413,13 @@ function Optimize-GitRepository {
                 $meta = $branchMetadata[$branch]
                 $upstream = $meta.Upstream
                 if (-not $upstream) {
-                    Write-Host "  ❌ No remote tracking branch" -ForegroundColor Red
+                    Write-Host "  [FAIL] No remote tracking branch" -ForegroundColor Red
                     continue
                 }
 
                 $trackInfo = $meta.Track
                 if ($trackInfo -match '\[gone\]') {
-                    Write-Host "  ❌ Remote branch does not exist: $upstream" -ForegroundColor Red
+                    Write-Host "  [FAIL] Remote branch does not exist: $upstream" -ForegroundColor Red
                     continue
                 }
 
@@ -445,13 +433,13 @@ function Optimize-GitRepository {
                 Write-Host "  Status: Ahead $ahead, Behind $behind" -ForegroundColor DarkGray
 
                 if ($ahead -eq 0 -and $behind -ge 0) {
-                    Write-Host "  ✅ Safe to delete: $branch" -ForegroundColor Green
+                    Write-Host "  [OK]   Safe to delete: $branch" -ForegroundColor Green
                     $branchesToDelete += $branch
                 }
                 else {
                     $reason = if ($ahead -gt 0 -and $behind -eq 0) { 'Local branch has commits not pushed to remote' }
                     elseif ($ahead -gt 0 -and $behind -gt 0) { 'Branches have diverged' } else { 'Unknown or behind/ahead state' }
-                    Write-Host "  ❌ Not safe to delete: $branch" -ForegroundColor Red
+                    Write-Host "  [FAIL] Not safe to delete: $branch" -ForegroundColor Red
                     Write-Host "  Reason: $reason" -ForegroundColor DarkRed
                 }
             }
@@ -459,78 +447,83 @@ function Optimize-GitRepository {
             # Delete branches
             if ($branchesToDelete.Count -gt 0) {
                 if ($IsDryRun) {
-                    Write-Host "`n🔍 DRY RUN - Branches that would be deleted:" -ForegroundColor Yellow
+                    Write-Host "`n[DRY]  DRY RUN - Branches that would be deleted:" -ForegroundColor Yellow
                     foreach ($branch in $branchesToDelete) { Write-Host "  Would delete: $branch" -ForegroundColor Magenta }
                 }
                 else {
-                    Write-Host "`n🗑️  Deleting safe branches:" -ForegroundColor Yellow
+                    Write-Host "`n[DEL]  Deleting safe branches:" -ForegroundColor Yellow
+                    $deleteFlag = if ($Force) { '-D' } else { '-d' }
                     foreach ($branch in $branchesToDelete) {
                         if ($PSCmdlet.ShouldProcess($branch, 'Delete local branch')) {
-                            git branch -D -- $branch 2>$null
-                            if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Deleted: $branch" -ForegroundColor Green }
-                            else { Write-Host "  ❌ Failed to delete: $branch" -ForegroundColor Red }
+                            git branch $deleteFlag -- $branch 2>$null
+                            if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   Deleted: $branch" -ForegroundColor Green }
+                            else { Write-Host "  [FAIL] Failed to delete: $branch (use -Force to force-delete)" -ForegroundColor Red }
                         }
                     }
                 }
             }
             else {
-                Write-Host "`n✅ No branches to delete" -ForegroundColor Green
+                Write-Host "`n[OK]   No branches to delete" -ForegroundColor Green
             }
 
             # REPOSITORY MAINTENANCE
             if (-not $IsDryRun) {
-                Write-Host "`n💾 Repository Maintenance:" -ForegroundColor Yellow
+                Write-Host "`n[SAVE] Repository Maintenance:" -ForegroundColor Yellow
 
-                # Prefer 'git maintenance' if available
+                # Probe git maintenance availability once per session
+                if ($null -eq $script:GitMaintenanceAvailable) {
+                    git maintenance run -h *> $null
+                    $script:GitMaintenanceAvailable = ($LASTEXITCODE -in 0, 129)
+                }
+
                 $ranMaintenance = $false
-                git maintenance run -h *> $null
-                if ($LASTEXITCODE -in 0, 129) {
+                if ($script:GitMaintenanceAvailable) {
                     if ($PSCmdlet.ShouldProcess($Path, 'git maintenance run')) {
                         git maintenance run 2>$null
-                        if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Maintenance completed" -ForegroundColor Green; $ranMaintenance = $true }
+                        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   Maintenance completed" -ForegroundColor Green; $ranMaintenance = $true }
                     }
                 }
 
                 if (-not $ranMaintenance) {
                     if ($PSCmdlet.ShouldProcess($Path, 'git gc --prune=now')) {
                         git gc --prune=now 2>$null
-                        if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ GC completed" -ForegroundColor Green }
+                        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   GC completed" -ForegroundColor Green }
                     }
                 }
 
                 if ($Aggressive) {
                     if ($PSCmdlet.ShouldProcess($Path, 'git reflog expire --expire=now --all')) {
                         git reflog expire --expire=now --all 2>$null
-                        if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Reflog pruned" -ForegroundColor Green }
+                        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   Reflog pruned" -ForegroundColor Green }
                     }
                     if ($PSCmdlet.ShouldProcess($Path, 'git repack -ad --depth=50 --window=250')) {
                         git repack -ad --depth=50 --window=250 2>$null
-                        if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Repack completed" -ForegroundColor Green }
+                        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   Repack completed" -ForegroundColor Green }
                     }
                     if ($PSCmdlet.ShouldProcess($Path, 'git gc --aggressive --prune=now')) {
                         git gc --aggressive --prune=now 2>$null
-                        if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Aggressive GC completed" -ForegroundColor Green }
+                        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   Aggressive GC completed" -ForegroundColor Green }
                     }
                     if ($PSCmdlet.ShouldProcess($Path, 'git clean -fd')) {
                         git clean -fd 2>$null
-                        if ($LASTEXITCODE -eq 0) { Write-Host "  ✅ Clean completed" -ForegroundColor Green }
+                        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]   Clean completed" -ForegroundColor Green }
                     }
                 }
             }
             else {
-                Write-Host "`n💾 Repository maintenance would be performed (skipped in dry run)" -ForegroundColor Yellow
+                Write-Host "`n[SAVE] Repository maintenance would be performed (skipped in dry run)" -ForegroundColor Yellow
             }
 
             # Get final repo size (only if not dry run and metrics requested)
-            if (-not $IsDryRun -and $CollectSizeMetrics -and $initialSize -ne $null) {
+            if (-not $IsDryRun -and $CollectSizeMetrics -and $null -ne $initialSize) {
                 $finalSize = Get-RepoSize -Path $Path
                 $sizeReduction = [long]($initialSize - $finalSize)
 
-                Write-Host "`n📊 Size Analysis:" -ForegroundColor Yellow
-                Write-Host "  Initial size: $(Format-FileSize $initialSize)" -ForegroundColor Gray
-                Write-Host "  Final size:   $(Format-FileSize $finalSize)" -ForegroundColor Gray
+                Write-Host "`n[INFO] Size Analysis:" -ForegroundColor Yellow
+                Write-Host "  Initial size: $(ConvertTo-HumanReadableSize $initialSize)" -ForegroundColor Gray
+                Write-Host "  Final size:   $(ConvertTo-HumanReadableSize $finalSize)" -ForegroundColor Gray
                 if ($sizeReduction -gt 0 -and $initialSize -gt 0) {
-                    Write-Host "  Space saved:  $(Format-FileSize $sizeReduction)" -ForegroundColor Green
+                    Write-Host "  Space saved:  $(ConvertTo-HumanReadableSize $sizeReduction)" -ForegroundColor Green
                     $reductionPercent = [math]::Round(($sizeReduction / [double]$initialSize) * 100, 1)
                     Write-Host "  Reduction:    $reductionPercent%" -ForegroundColor Green
                 }
@@ -540,19 +533,19 @@ function Optimize-GitRepository {
             }
 
             # Show final status
-            Write-Host "`n🌿 Final Branch Status:" -ForegroundColor Yellow
+            Write-Host "`n[GIT]  Final Branch Status:" -ForegroundColor Yellow
             git branch --list 2>$null | ForEach-Object {
-                if ($_ -match '^\*\s') { Write-Host "  → $($_.Substring(2))" -ForegroundColor Cyan }
-                elseif ($_ -match '\b(dev|develop|main|master)\b') { Write-Host "  ★ $($_.Trim())" -ForegroundColor Magenta }
+                if ($_ -match '^\*\s') { Write-Host "  -> $($_.Substring(2))" -ForegroundColor Cyan }
+                elseif ($_ -match '\b(dev|develop|main|master)\b') { Write-Host "  [MAIN] $($_.Trim())" -ForegroundColor Magenta }
                 else { Write-Host "    $($_.Trim())" -ForegroundColor Gray }
             }
 
-            if ($IsDryRun) { Write-Host "`n🔍 DRY RUN completed for: $repoName" -ForegroundColor Yellow }
-            else { Write-Host "`n✅ Repository processing completed: $repoName" -ForegroundColor Green }
+            if ($IsDryRun) { Write-Host "`n[DRY]  DRY RUN completed for: $repoName" -ForegroundColor Yellow }
+            else { Write-Host "`n[OK]   Repository processing completed: $repoName" -ForegroundColor Green }
 
         }
         catch {
-            Write-Host "❌ Error processing: $repoName" -ForegroundColor Red
+            Write-Host "[FAIL] Error processing: $repoName" -ForegroundColor Red
             Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         }
         finally {
@@ -562,7 +555,7 @@ function Optimize-GitRepository {
 
     # Validate path exists
     if (-not (Test-Path $RepoPath)) {
-        Write-Host "❌ Path does not exist: $RepoPath" -ForegroundColor Red
+        Write-Host "[FAIL] Path does not exist: $RepoPath" -ForegroundColor Red
         return
     }
 
@@ -571,27 +564,25 @@ function Optimize-GitRepository {
 
     # Main execution logic
     if ($Recursive) {
-        Write-Host "🔍 Searching for git repositories recursively under: $RepoPath" -ForegroundColor Cyan
-        $repos = Get-ChildItem -Path $RepoPath -Recurse -Directory -Force -Filter .git -ErrorAction SilentlyContinue |
-        ForEach-Object { Split-Path $_.FullName -Parent } |
-        Sort-Object -Unique
+        Write-Host "[DRY]  Searching for git repositories recursively under: $RepoPath" -ForegroundColor Cyan
+        $repos = @(Get-GitRepositoryPaths -Root $RepoPath)
 
-        if (-not $repos -or $repos.Count -eq 0) {
-            Write-Host "❌ No git repositories found" -ForegroundColor Yellow
+        if (-not $repos) {
+            Write-Host "[FAIL] No git repositories found" -ForegroundColor Yellow
             return
         }
 
-        Write-Host "📋 Found $($repos.Count) repositories to process" -ForegroundColor Cyan
+        Write-Host "[INFO] Found $($repos.Count) repositories to process" -ForegroundColor Cyan
 
         foreach ($repo in $repos) {
             if ($PSCmdlet.ShouldProcess($repo, 'Process repository')) {
-                Process-SingleRepo -Path $repo -IsDryRun $DryRun
+                Invoke-SingleRepoMaintenance -Path $repo -IsDryRun $DryRun
             }
         }
     }
     else {
         if ($PSCmdlet.ShouldProcess($RepoPath, 'Process repository')) {
-            Process-SingleRepo -Path $RepoPath -IsDryRun $DryRun
+            Invoke-SingleRepoMaintenance -Path $RepoPath -IsDryRun $DryRun
         }
     }
 }
@@ -674,6 +665,11 @@ function Invoke-AiCommit {
         [string]$Context
     )
 
+    if (-not (Get-Command lumen -ErrorAction SilentlyContinue)) {
+        Write-Error "lumen not found in PATH. Install it from https://github.com/jrcribb/lumen to use Invoke-AiCommit."
+        return
+    }
+
     $staged = git diff --cached --name-only
 
     if (-not $staged) {
@@ -689,9 +685,16 @@ function Invoke-AiCommit {
     }
 
     if ($Context) {
-        lumen draft --context "$Context" | git commit -F -
+        $draft = lumen draft --context "$Context"
     }
     else {
-        lumen draft | git commit -F -
+        $draft = lumen draft
     }
+
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($draft)) {
+        Write-Error "lumen failed to generate a commit message. Aborting."
+        return
+    }
+
+    $draft | git commit -F -
 }

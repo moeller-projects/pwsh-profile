@@ -1,5 +1,11 @@
 # Initialize a stopwatch at the very beginning of the profile (verbose-only)
 $profileStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$profileStageTimings = [ordered]@{}
+function Set-ProfileTimingCheckpoint {
+    param([Parameter(Mandatory)][string]$Stage)
+    $profileStageTimings[$Stage] = $profileStopwatch.ElapsedMilliseconds
+}
+
 Write-Verbose "Profile loading started at $($profileStopwatch.ElapsedMilliseconds)ms"
 
 # Essential and fast-loading configurations (these run immediately)
@@ -9,6 +15,8 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
 
 
 Write-Verbose "Core configurations loaded at $($profileStopwatch.ElapsedMilliseconds)ms"
+Set-ProfileTimingCheckpoint -Stage 'core'
+
 
 
 # --- Utility Functions (Keep synchronous as they are used early and are fast) ---
@@ -24,7 +32,7 @@ function Resolve-SymlinkPath {
         [string]$Path
     )
     if (-not ([System.IO.File]::Exists($Path) -or [System.IO.Directory]::Exists($Path))) {
-        Write-Warning "Pfad '$Path' existiert nicht. Kann keinen Symlink auflösen."
+        Write-Warning "Path '$Path' does not exist. Cannot resolve symlink."
         return $null
     }
 
@@ -38,7 +46,7 @@ function Resolve-SymlinkPath {
         }
     }
     catch {
-        Write-Warning "Fehler beim Auflösen des Pfades '$Path': $($_.Exception.Message)"
+        Write-Warning "Error resolving path '$Path': $($_.Exception.Message)"
         return $null
     }
 }
@@ -47,17 +55,26 @@ function Resolve-SymlinkPath {
 $ProfileSymlinkPath = $MyInvocation.MyCommand.Definition
 $ProfileRepoFullPath = Resolve-SymlinkPath -Path $ProfileSymlinkPath
 if ([string]::IsNullOrEmpty($ProfileRepoFullPath)) {
-    Write-Error "Konnte den Repository-Pfad des Profils nicht ermitteln. Skripte können nicht geladen werden."
+    Write-Error "Could not determine the repository path of the profile. Scripts cannot be loaded."
     return
 }
 $ProfileRepoPath = [System.IO.Path]::GetDirectoryName($ProfileRepoFullPath)
 # Add the repository root for ad hoc module imports.
 $modulesRoot = $ProfileRepoPath
-if ([System.IO.Directory]::Exists($modulesRoot) -and ($env:PSModulePath -notlike "*${modulesRoot}*")) {
-    $env:PSModulePath = "$modulesRoot$([System.IO.Path]::PathSeparator)$env:PSModulePath"
+$pathSep = [System.IO.Path]::PathSeparator
+$pathEntries = $env:PSModulePath -split [System.Text.RegularExpressions.Regex]::Escape($pathSep)
+$pathComparison = if ($IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')) {
+    [System.StringComparison]::OrdinalIgnoreCase
+} else {
+    [System.StringComparison]::Ordinal
+}
+if ([System.IO.Directory]::Exists($modulesRoot) -and -not ($pathEntries | Where-Object { [string]::Equals($_, $modulesRoot, $pathComparison) })) {
+    $env:PSModulePath = "$modulesRoot$pathSep$env:PSModulePath"
 }
 
 # Area modules autoload individual commands through the module path above.
+Set-ProfileTimingCheckpoint -Stage 'module-path'
+
 
 # --- DEFERRED INITIALIZATION USING REGISTER-ENGINEEVENT (OnIdle) ---
 
@@ -119,43 +136,67 @@ if (Test-IsInteractive) {
             }
             Set-PSReadLineOption -AddToHistoryHandler {
                 param($line)
-                $sensitivePatterns = @('password', 'secret', 'token', 'apikey', 'connectionstring')
+                $sensitivePatterns = @(
+                    '(?i)(password|passwd|secret|token|apikey|api_key|connectionstring)\s*[:=]'
+                    '(?i)(?:^|\s)-(?:access[-_]?token|password|passwd|secret|api[-_]?key|connection[-_]?string)(?:\s+|=)(?:"[^"]*"|''[^'']*''|\S+)'
+                )
                 return -not ($sensitivePatterns | Where-Object { $line -match $_ })
             }
-            Set-PSReadLineOption -PredictionSource $prediction
             Set-PSReadLineOption -MaximumHistoryCount 10000
-            Set-PSReadLineOption -HistorySavePath "$env:APPDATA\PSReadLine\CommandHistory.txt"
         }
     }
-    catch { }
+    catch { Write-Verbose "PSReadLine configuration failed: $_" }
     }
 
 
     Write-Verbose "Interactive session detected; registering deferred initialization"
 
-    $script:ProfileDeferredInitDone = $false
-    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -Action {
-        if ($script:ProfileDeferredInitDone) { return }
-        $script:ProfileDeferredInitDone = $true
+    # Stage 1: Load integrations module + prompt engine
+    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {
         try {
-            if ($Env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1' -or $Env:PWSH_PROFILE_COMPLETIONS -eq '1') {
+            # Load integrations module once so all stages can use Get-CachedShellInit
+            $needsIntegrations = ($Env:PWSH_PROMPT -in @('starship','posh')) -or
+                                  ($Env:PWSH_PROFILE_COMPLETIONS -eq '1') -or
+                                  ($Env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1') -or
+                                  ($Env:PWSH_PROFILE_GIT_WT -eq '1')
+            if ($needsIntegrations) {
                 Import-Module -Name PwshProfile.Integrations -Global -ErrorAction Stop
-                Import-RequiredModules
-                if ($Env:PWSH_PROFILE_COMPLETIONS -eq '1') {
-                    Initialize-Completion
-                }
-            }
-
-            $editor = if ($env:EDITOR) { $env:EDITOR } else { 'notepad' }
-            if ($editor -ne 'vim') {
-                Set-Alias -Name vim -Value $editor -Scope Global
             }
 
             if ($Env:PWSH_PROMPT -eq 'starship' -and (Get-Command starship -ErrorAction SilentlyContinue)) {
-                & ([ScriptBlock]::Create((starship init powershell | Out-String)))
+                $file = Get-CachedShellInit -Tool 'starship' -Generator { starship init powershell | Out-String }
+                if ($file) { . $file }
             }
             elseif ($Env:PWSH_PROMPT -eq 'posh' -and (Get-Command oh-my-posh -ErrorAction SilentlyContinue)) {
-                & ([ScriptBlock]::Create((oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String)))
+                if ($env:POSH_THEMES_PATH) {
+                    $file = Get-CachedShellInit -Tool 'oh-my-posh' -Generator {
+                        oh-my-posh init pwsh --config "$env:POSH_THEMES_PATH/json.omp.json" | Out-String
+                    }
+                    if ($file) { . $file }
+                }
+                else {
+                    Write-Verbose "oh-my-posh: POSH_THEMES_PATH is not set; skipping prompt init."
+                }
+            }
+        }
+        catch {
+            Write-Verbose ("Deferred init stage 1 (prompt) error: {0}" -f $_.Exception.Message)
+        }
+    } | Out-Null
+
+    # Stage 2: Completions + zoxide aliases
+    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {
+        try {
+            if ($Env:PWSH_PROFILE_COMPLETIONS -eq '1') {
+                Initialize-Completion
+            }
+
+            # Register zoxide aliases after zoxide init (which runs inside Initialize-Completion)
+            if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) {
+                Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force
+            }
+            if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) {
+                Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force
             }
 
             if (Get-Command dotnet -ErrorAction SilentlyContinue) {
@@ -166,57 +207,63 @@ if (Test-IsInteractive) {
                 }
                 Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $dotnetCompleter
             }
-
-            if (Get-Command az -ErrorAction SilentlyContinue) {
-                Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
-                    param($commandName, $wordToComplete, $cursorPosition)
-                    if ([string]::IsNullOrWhiteSpace($wordToComplete) -or $wordToComplete.Length -lt 2) { return }
-                    $completionFile = [System.IO.Path]::GetTempFileName()
-                    try {
-                        $env:ARGCOMPLETE_USE_TEMPFILES = 1
-                        $env:_ARGCOMPLETE_STDOUT_FILENAME = $completionFile
-                        $env:COMP_LINE = $wordToComplete
-                        $env:COMP_POINT = $cursorPosition
-                        $env:_ARGCOMPLETE = 1
-                        $env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
-                        $env:_ARGCOMPLETE_IFS = "`n"
-                        $env:_ARGCOMPLETE_SHELL = 'powershell'
-                        az 2>&1 | Out-Null
-                        [System.IO.File]::ReadAllLines($completionFile) | Sort-Object | ForEach-Object {
-                            [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_)
-                        }
-                    }
-                    finally {
-                        Remove-Item -ErrorAction SilentlyContinue $completionFile
-                        Remove-Item Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL -ErrorAction SilentlyContinue
-                    }
-                }
-            }
-
-
-            if ($Env:PWSH_PROFILE_GIT_WT -eq '1' -and (Get-Command git-wt -ErrorAction SilentlyContinue)) {
-                & ([ScriptBlock]::Create((git-wt config shell init powershell | Out-String)))
-            }
-
         }
         catch {
-            Write-Verbose ("Deferred init error: {0}" -f $_.Exception.Message)
+            Write-Verbose ("Deferred init stage 2 (completions) error: {0}" -f $_.Exception.Message)
         }
-        finally {
-            Unregister-Event -SourceIdentifier PowerShell.OnIdle -ErrorAction SilentlyContinue
+    } | Out-Null
+
+    # Stage 3: Optional modules
+    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {
+        try {
+            if ($Env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1') {
+                Import-RequiredModules
+            }
+        }
+        catch {
+            Write-Verbose ("Deferred init stage 3 (optional modules) error: {0}" -f $_.Exception.Message)
+        }
+    } | Out-Null
+
+    # Stage 4: Housekeeping (editor alias, git-wt)
+    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {
+        try {
+            $editor = if ($env:EDITOR) { $env:EDITOR } else { 'notepad' }
+            if ($editor -ne 'vim') {
+                Set-Alias -Name vim -Value $editor -Scope Global
+            }
+
+            if ($Env:PWSH_PROFILE_GIT_WT -eq '1' -and (Get-Command git-wt -ErrorAction SilentlyContinue)) {
+                $file = Get-CachedShellInit -Tool 'git-wt' -Generator { git-wt config shell init powershell | Out-String }
+                if ($file) { . $file }
+            }
+        }
+        catch {
+            Write-Verbose ("Deferred init stage 4 (housekeeping) error: {0}" -f $_.Exception.Message)
         }
     } | Out-Null
 }
+Set-ProfileTimingCheckpoint -Stage 'deferred-registered'
+
 
 # --- Always available utility functions / aliases (fast and core to profile management) ---
 # These are kept outside the deferred block because they are fundamental profile management tools and are fast to load.
 function Invoke-ProfileReload { & $profile }
-function Edit-Profile { vim $PROFILE }
+function Edit-Profile {
+    [CmdletBinding()]
+    param()
+    $editor = if ($env:EDITOR) { $env:EDITOR } else { 'notepad' }
+    & $editor $PROFILE
+}
 Set-Alias -Name ep -Value Edit-Profile
 function admin {
     [CmdletBinding()]
     [Alias("su")]
     param ()
+    if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
+        Write-Warning "admin: This function requires Windows."
+        return
+    }
     if ($args.Count -gt 0) {
         $argList = $args -join ' '
         Start-Process wt -Verb runAs -ArgumentList "pwsh.exe -NoExit -Command $argList"
@@ -228,15 +275,12 @@ function admin {
 
 # Common Aliases (move them here to ensure they are available immediately)
 # These do not depend on external files or slow lookups.
-# goToParent, goToParent2Levels, goToHome must be defined *here* or *globally available* for these aliases to work.
 Set-Alias -Name c -Value Clear-Host
 Set-Alias -Name ls -Value Get-ChildItem
 
 Set-Alias -Name g -Value git
 
-# zoxide and git alias completer
-if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) { Set-Alias -Name z -Value __zoxide_z -Option AllScope -Scope Global -Force }
-if (Get-Command __zoxide_zi -ErrorAction SilentlyContinue) { Set-Alias -Name zi -Value __zoxide_zi -Option AllScope -Scope Global -Force }
+# Git alias completer (registered synchronously; zoxide aliases registered in OnIdle after init)
 if (Get-Command git -ErrorAction SilentlyContinue) {
     Register-ArgumentCompleter -Native -CommandName git -ScriptBlock {
         param($wordToComplete, $commandAst, $cursorPosition)
@@ -245,14 +289,25 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
             $script:GitAliases = git config --list | ForEach-Object { if ($_ -match '(?<=alias\.).*?(?==)') { $Matches[0] } }
             $gitAliases = $script:GitAliases
         }
-        $command = $commandAst.CommandElements[0].Value
-        if ($command -eq 'git') {
-            $gitAliases | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
+        $gitAliases | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     }
 }
 
+$profileStageTimings['synchronous-complete'] = $profileStopwatch.ElapsedMilliseconds
 Write-Verbose "End of synchronous profile execution at $($profileStopwatch.ElapsedMilliseconds)ms. Deferred tasks registered."
 
+
+# Optional timing output (PWSH_PROFILE_TIMING=1)
+if ($env:PWSH_PROFILE_TIMING -eq '1') {
+    Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {
+        try {
+            foreach ($checkpoint in $profileStageTimings.GetEnumerator()) {
+                Write-Host "[TIMING] $($checkpoint.Key): $($checkpoint.Value)ms" -ForegroundColor DarkCyan
+            }
+            Write-Host "[TIMING] idle: $($profileStopwatch.ElapsedMilliseconds)ms" -ForegroundColor DarkCyan
+        }
+        catch { Write-Verbose "TIMING stage failed: $_" }
+    } | Out-Null
+}

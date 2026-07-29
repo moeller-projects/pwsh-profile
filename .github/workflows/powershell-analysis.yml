@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "**" ]
 
+permissions:
+  contents: read
+
 jobs:
   psscriptanalyzer:
     name: Run PSScriptAnalyzer
@@ -41,5 +44,26 @@ jobs:
             Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
           } else {
             Write-Host 'No issues found.'
+          }
+
+  smoketests:
+    name: Run Smoke Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Smoke Tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./scripts/Invoke-Smoketests.ps1 -VerboseOutput
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Smoke tests failed."
+            exit 1
           }
 

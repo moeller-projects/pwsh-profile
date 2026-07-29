@@ -4,14 +4,14 @@ param(
 
 $totalTime = 0
 1..$Iterations | ForEach-Object {
-    Write-Progress -Id 1 -Activity 'Measuring Shell Startup (NoProfile)' -PercentComplete $_
+    Write-Progress -Id 1 -Activity 'Measuring Shell Startup (NoProfile)' -PercentComplete (($_ / $Iterations) * 100)
     $totalTime += (Measure-Command { pwsh -NoProfile -Command 1 }).TotalMilliseconds
 }
 $pwshStartup = $totalTime / $Iterations
 
 $totalProfileTime = 0
 1..$Iterations | ForEach-Object {
-    Write-Progress -Id 1 -Activity 'Measuring Full Profile Load' -PercentComplete $_
+    Write-Progress -Id 1 -Activity 'Measuring Full Profile Load' -PercentComplete (($_ / $Iterations) * 100)
     $totalProfileTime += (Measure-Command { pwsh -Command 1 }).TotalMilliseconds # pwsh + profile
 }
 Write-Progress -id 1 -activity 'Measuring Full Profile Load' -Completed

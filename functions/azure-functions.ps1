@@ -7,7 +7,12 @@ class MenuOption {
     }
 }
 
-function New-MenuItem([String]$Name, [String]$Value) {
+function New-MenuItem {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string]$Name,
+        [string]$Value
+    )
     $MenuItem = [MenuOption]::new()
     $MenuItem.Name = $Name
     $MenuItem.Value = $Value
@@ -31,8 +36,20 @@ function Switch-AzureSubscription {
 
     $Options = $AZ_SUBSCRIPTIONS | ForEach-Object { New-MenuItem -Name $_.name -Value $_.id }
 
-    # Assuming Show-Menu is provided by PSMenu/InteractiveMenu
-    $selectedAZSub = Show-Menu -MenuItems $Options
+    $selectedAZSub = $null
+    if (Get-Command Show-Menu -ErrorAction SilentlyContinue) {
+        $selectedAZSub = Show-Menu -MenuItems $Options
+    }
+    else {
+        Write-Host "Available subscriptions:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            Write-Host "  [$($i + 1)] $($Options[$i].Name) ($($Options[$i].Value))"
+        }
+        $choice = Read-Host "Enter number"
+        $idx = [int]$choice - 1
+        if ($idx -ge 0 -and $idx -lt $Options.Count) { $selectedAZSub = $Options[$idx] }
+    }
+
     if ($null -eq $selectedAZSub) {
         Write-Warning "No subscription selected."
         return
@@ -61,7 +78,20 @@ function Connect-ContainerRegistry {
 
     $Options = $ACRs | ForEach-Object { New-MenuItem -Name $_.loginServer -Value $_.name }
 
-    $selectedACR = Show-Menu -MenuItems $Options
+    $selectedACR = $null
+    if (Get-Command Show-Menu -ErrorAction SilentlyContinue) {
+        $selectedACR = Show-Menu -MenuItems $Options
+    }
+    else {
+        Write-Host "Available container registries:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            Write-Host "  [$($i + 1)] $($Options[$i].Name) ($($Options[$i].Value))"
+        }
+        $choice = Read-Host "Enter number"
+        $idx = [int]$choice - 1
+        if ($idx -ge 0 -and $idx -lt $Options.Count) { $selectedACR = $Options[$idx] }
+    }
+
     if ($null -eq $selectedACR) {
         Write-Warning "No ACR selected."
         return
@@ -71,32 +101,4 @@ function Connect-ContainerRegistry {
     # Simpler and avoids handling credentials in shell
     & az acr login -n $selectedACR.Value | Out-Null
     Write-Host "Logged into Docker registry $($selectedACR.Name)" -ForegroundColor Green
-}
-
-function New-NetworkAccessExceptionForResources {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    [Alias("cna")]
-    param()
-
-    $url = 'https://gist.githubusercontent.com/moeller-projects/edef0e5eb63797f7fab3c79c0a30809b/raw/106b33a431f36ab905054c3acc5d1787f8dc7b5e/add-network-exception-for-resources.ps1'
-    Write-Host "About to download and run: $url" -ForegroundColor Yellow
-    $confirm = Read-Host "Continue? (y/N)"
-    if ($confirm -notmatch '^(?i)y(?:es)?$') { Write-Host "Aborted." -ForegroundColor Yellow; return }
-    $temp = [System.IO.Path]::GetTempFileName().Replace('.tmp', '.ps1')
-    try {
-        Write-Verbose "Downloading script to $temp..."
-        if ($PSVersionTable.PSVersion.Major -ge 6) {
-            Invoke-WebRequest -TimeoutSec 30 -ErrorAction Stop -Uri $url -OutFile $temp
-        }
-        else {
-            Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop -Uri $url -OutFile $temp
-        }
-        if ($PSCmdlet.ShouldProcess($temp, 'execute downloaded script')) {
-            & $temp
-            Write-Host "Network access exceptions script executed." -ForegroundColor Green
-        }
-    }
-    finally {
-        Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue
-    }
 }

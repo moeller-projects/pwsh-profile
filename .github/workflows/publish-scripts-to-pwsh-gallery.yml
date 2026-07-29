@@ -1,0 +1,60 @@
+name: Publish Scripts to PSGallery
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish allowlisted scripts to PSGallery
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PowerShell environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name PowerShellGet -Force -Scope CurrentUser -AllowClobber
+          Install-Module -Name PackageManagement -Force -Scope CurrentUser -AllowClobber
+          Import-Module PackageManagement
+          Import-Module PowerShellGet
+          # Trust PSGallery for this session
+          try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop } catch { }
+          # Ensure NuGet provider exists
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
+
+      - name: Publish allowlisted scripts to PSGallery
+        if: github.event_name == 'push'
+        env:
+          PSGALLERY: ${{ secrets.PSGALLERY }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (-not $env:PSGALLERY -or [string]::IsNullOrWhiteSpace($env:PSGALLERY)) {
+            Write-Error "Secret PSGALLERY is not set. Please add a NuGet API key named 'PSGALLERY' in repository secrets."
+            exit 1
+          }
+
+          # Explicit allowlist — never publish Invoke-Smoketests.ps1 or other tooling scripts
+          $allowlist = @(
+            'scripts/add-database-firewall-rules.ps1',
+            'scripts/add-windows-defender-exclusions-for-jetbrains.ps1'
+          )
+
+          foreach ($relativePath in $allowlist) {
+            $fullPath = Join-Path $PWD $relativePath
+            if (-not (Test-Path $fullPath)) {
+              Write-Warning "Allowlisted script not found: $fullPath — skipping."
+              continue
+            }
+            Write-Host "Publishing $fullPath to PSGallery..."
+            Publish-Script -Path $fullPath -NuGetApiKey $env:PSGALLERY -Force
+          }
+
+          Write-Host "All allowlisted scripts processed."

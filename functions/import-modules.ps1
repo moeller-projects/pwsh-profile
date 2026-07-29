@@ -18,14 +18,14 @@ function Import-RequiredModules {
         }
     )
 
-    if ($missingModules -and $env:PWSH_PROFILE_AUTO_INSTALL -eq '1') {
-        Install-Module -Name $missingModules -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+    if ($missingModules) {
+        Write-Warning "The following optional modules are not installed: $($missingModules -join ', '). Run: Install-Module -Name $($missingModules -join ', ') -Scope CurrentUser"
     }
 
-    Import-Module -Name $modulesToImport -ErrorAction SilentlyContinue
+    Import-Module -Name $modulesToImport -Global -ErrorAction SilentlyContinue
 
     $chocolateyProfile = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
     if ([System.IO.File]::Exists($chocolateyProfile)) {
-        Import-Module -LiteralPath $chocolateyProfile -ErrorAction SilentlyContinue
+        Import-Module -LiteralPath $chocolateyProfile -Global -ErrorAction SilentlyContinue
     }
 }

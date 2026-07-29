@@ -1,90 +1,3 @@
-$global:ProjectPaths = @(
-    "D:\projects\aveato",
-    "D:\projects\laekkerai",
-    "D:\projects\private",
-    "D:\projects\research"
-)
-
-# Project paths configuration helpers
-function Get-ProjectConfigPath {
-    if ($IsWindows) {
-        $base = $env:APPDATA
-        if (-not $base) { $base = Join-Path $HOME 'AppData/Roaming' }
-        return (Join-Path $base 'pwsh-profile/config.json')
-    } else {
-        return (Join-Path $HOME '.config/pwsh-profile/config.json')
-    }
-}
-
-function Get-ProjectPaths {
-    $cfgPath = Get-ProjectConfigPath
-    if (Test-Path -LiteralPath $cfgPath) {
-        try {
-            $json = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json -ErrorAction Stop
-            if ($json.ProjectRoots -and $json.ProjectRoots.Count -gt 0) { return [string[]]$json.ProjectRoots }
-        } catch {
-            Write-Verbose "Failed to parse project config at ${cfgPath}: $($_.Exception.Message)"
-        }
-    }
-    if ($env:PWSH_PROJECT_PATHS) { return ($env:PWSH_PROJECT_PATHS -split ';|,') }
-    return $global:ProjectPaths
-}
-
-function Set-ProjectPaths {
-    [CmdletBinding(SupportsShouldProcess=$true)]
-    param([Parameter(Mandatory)][string[]]$Paths)
-    $cfgPath = Get-ProjectConfigPath
-    $cfgDir = Split-Path -Parent $cfgPath
-    if (-not (Test-Path -LiteralPath $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
-    $obj = @{ ProjectRoots = $Paths }
-    $json = $obj | ConvertTo-Json -Depth 3
-    if ($PSCmdlet.ShouldProcess($cfgPath, 'write project paths config')) {
-        Set-Content -LiteralPath $cfgPath -Value $json -Encoding UTF8
-        Write-Verbose "Saved project paths to $cfgPath"
-    }
-}
-
-$global:ProjectPaths = Get-ProjectPaths
-
-# Custom argument completer for substring matching
-Register-ArgumentCompleter -CommandName Enter-ProjectDirectory -ParameterName ProjectName -ScriptBlock {
-    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-
-    $matches = foreach ($projectPath in $global:ProjectPaths) {
-        if (Test-Path $projectPath) {
-            Get-ChildItem -Path $projectPath -Directory | ForEach-Object {
-                $relativePath = $_.BaseName
-                if ($relativePath -like "*$wordToComplete*") {
-                    [System.Management.Automation.CompletionResult]::new(
-                        $relativePath, $relativePath, 'ParameterValue', $relativePath
-                    )
-                }
-            }
-        }
-    }
-
-    return $matches
-}
-
-function Enter-ProjectDirectory {
-    [CmdletBinding()]
-    [Alias("project", "p")]
-    param(
-        [string] $ProjectName
-    )
-
-    foreach ($projectPath in $global:ProjectPaths) {
-        # Use .NET Path.Combine for performance
-        $fullProjectPath = [System.IO.Path]::Combine($projectPath, $ProjectName)
-        if ([System.IO.Directory]::Exists($fullProjectPath)) {
-            # Use .NET for directory check
-            Set-Location -Path $fullProjectPath
-            Get-ChildItem # Keep Get-ChildItem as it's a common interactive action here
-            return
-        }
-    }
-}
-
 function Get-RecentHistory {
     [CmdletBinding()]
     param (
@@ -106,17 +19,17 @@ function Get-RecentHistory {
 
 function Clear-Cache {
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param()
-    Write-Host "Clearing cache..." -ForegroundColor Cyan
-
+    param(
+        [switch]$IncludePrefetch
+    )
     $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
     if (-not $isWindowsCompat) {
         Write-Warning "Clear-Cache currently supports Windows only."
         return
     }
+    Write-Host "Clearing cache..." -ForegroundColor Cyan
 
-    # Using Remove-Item (cmdlet) with confirmation support
-    if ($PSCmdlet.ShouldProcess("Windows Prefetch")) {
+    if ($IncludePrefetch -and $PSCmdlet.ShouldProcess("Windows Prefetch")) {
         Write-Verbose "Clearing Windows Prefetch..."
         Remove-Item -Path "$env:SystemRoot\Prefetch\*" -Force -ErrorAction SilentlyContinue
     }
@@ -147,14 +60,30 @@ function pgrep {
     Get-Process $Name -ErrorAction SilentlyContinue
 }
 function Stop-ProcessForce {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [Alias('k9')]
     param(
         [Parameter(Mandatory)][string]$Name
     )
     Stop-Process -Name $Name -Force -ErrorAction SilentlyContinue
 }
-function sysinfo { [CmdletBinding()] param() Get-ComputerInfo }
+function sysinfo {
+    [CmdletBinding()]
+    param()
+    $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
+    if (-not $isWindowsCompat) {
+        Write-Warning "sysinfo currently supports Windows only."
+        return
+    }
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop |
+            Select-Object Caption, Version, LastBootUpTime, @{N='TotalMemoryGB';E={[math]::Round($_.TotalVisibleMemorySize/1MB,2)}}
+        $os
+    }
+    catch {
+        Write-Error "Failed to retrieve system info: $($_.Exception.Message)"
+    }
+}
 function flushdns {
     Clear-DnsClientCache
     Write-Information "DNS has been flushed"
@@ -167,40 +96,53 @@ function which {
 function export {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Value
+        [Parameter(Mandatory, Position = 0)][ValidateNotNullOrEmpty()][string]$Name,
+        [Parameter(Position = 1)][AllowEmptyString()][string]$Value
     )
-    set-item -force -path "env:$Name" -value $Value
+    # Support single-argument NAME=VALUE form
+    if (-not $PSBoundParameters.ContainsKey('Value') -and $Name -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+        Set-Item -Force -Path "env:$($Matches[1])" -Value $Matches[2]
+    }
+    else {
+        Set-Item -Force -Path "env:$Name" -Value $Value
+    }
 }
 
 function uptime {
     [CmdletBinding()]
     param()
+    $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
     try {
-        # Using .NET for DateTimeFormat properties to avoid locale issues
-        $dateFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.ShortDatePattern
-        $timeFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.LongTimePattern
-
-        # Prefer Get-CimInstance for system info over Get-WmiObject for PowerShell 6+
-        # However, win32_operatingsystem is common, so keeping WMI for PS 5 compatibility check.
-        # For PS 7+, (Get-CimInstance Win32_OperatingSystem).LastBootUpTime is more direct
-        # and avoids parsing 'net statistics workstation' string.
-        $bootTime = $null
-        if ($PSVersionTable.PSVersion.Major -ge 6) {
-            # Optimized for PS6+
-            $bootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        if ($isWindowsCompat) {
+            $dateFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.ShortDatePattern
+            $timeFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.LongTimePattern
+            if ($PSVersionTable.PSVersion.Major -ge 6) {
+                $bootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+            }
+            else {
+                $lastBoot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+                $bootTime = $lastBoot
+            }
+            $formattedBootTime = $bootTime.ToString("dddd, MMMM dd,yyyy HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + " [$($bootTime.ToString("$dateFormat $timeFormat"))]"
+            Write-Host "System started on: $formattedBootTime" -ForegroundColor DarkGray
+            $uptimeSpan = (Get-Date) - $bootTime
         }
         else {
-            # For PS5, use WMI
-            $lastBoot = (Get-WmiObject win32_operatingsystem).LastBootUpTime
-            $bootTime = [System.Management.ManagementDateTimeConverter]::ToDateTime($lastBoot)
+            if (Get-Command sysctl -ErrorAction SilentlyContinue) {
+                $bootOutput = sysctl -n kern.boottime 2>$null
+                if ($bootOutput -match 'sec\s*=\s*(\d+)') {
+                    $bootTime = [DateTimeOffset]::FromUnixTimeSeconds([long]$Matches[1]).LocalDateTime
+                }
+            }
+            if (-not $bootTime) {
+                $procUptime = [System.IO.File]::ReadAllText('/proc/uptime').Trim().Split()[0]
+                $uptimeSeconds = [double]$procUptime
+                $bootTime = (Get-Date).AddSeconds(-$uptimeSeconds)
+            }
+            $uptimeSpan = (Get-Date) - $bootTime
+            Write-Host "System started on: $($bootTime.ToString('yyyy-MM-dd HH:mm:ss'))" -ForegroundColor DarkGray
         }
-
-        $formattedBootTime = $bootTime.ToString("dddd, MMMM dd,yyyy HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + " [$($bootTime.ToString("$dateFormat $timeFormat"))]"
-        Write-Host "System started on: $formattedBootTime" -ForegroundColor DarkGray
-
-        $uptime = (Get-Date) - $bootTime
-        Write-Host ("Uptime: {0} days, {1} hours, {2} minutes, {3} seconds" -f $uptime.Days, $uptime.Hours, $uptime.Minutes, $uptime.Seconds) -ForegroundColor Blue
+        Write-Host ("Uptime: {0} days, {1} hours, {2} minutes, {3} seconds" -f $uptimeSpan.Days, $uptimeSpan.Hours, $uptimeSpan.Minutes, $uptimeSpan.Seconds) -ForegroundColor Blue
     }
     catch {
         Write-Error "An error occurred while retrieving system uptime. $_"
@@ -212,26 +154,37 @@ function Use-Env {
     .SYNOPSIS
     Loads environment variables from a .env file into the PowerShell session.
     .DESCRIPTION
-    This function reads a .env file in the current directory and sets environment variables in the PowerShell session. It supports comments and blank lines.
+    Reads a .env file and sets environment variables. Supports comments, blank lines,
+    export prefixes, and single/double-quoted values. Does not force APP_ENV.
+    .PARAMETER Path
+    Path to the .env file. Defaults to '.env' in the current directory.
     .EXAMPLE
     Use-Env
-    Loads environment variables from the .env file in the current directory.
-    .NOTES
-    This function is designed to be used in PowerShell scripts to manage environment variables easily.
+    .EXAMPLE
+    Use-Env -Path '.env.local'
     #>
-    if (Test-Path .env) {
-        $envLines = Get-Content .env
-        foreach ($line in $envLines) {
-            if (![string]::IsNullOrWhiteSpace($line) -and $line -notmatch '^\s*#') {
-                if ($line -match '^\s*([^=]+)\s*=(.*)$') {
-                    $name = $matches[1].Trim()
-                    $value = $matches[2].Trim()
-                    Set-Item -Path "env:$name" -Value $value
-                    # Write-Verbose "Set $name=$value"
-                }
+    [CmdletBinding()]
+    param(
+        [string]$Path = '.env'
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Write-Verbose "No .env file found at '$Path'."
+        return
+    }
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#') { continue }
+        # Strip optional 'export ' prefix
+        $line = $line -replace '^\s*export\s+', ''
+        if ($line -match '^\s*([^=]+?)\s*=(.*)$') {
+            $varName = $Matches[1].Trim()
+            $varValue = $Matches[2].Trim()
+            # Strip surrounding single or double quotes
+            if ($varValue -match "^'(.*)'$" -or $varValue -match '^"(.*)"$') {
+                $varValue = $Matches[1]
             }
+            Set-Item -Path "env:$varName" -Value $varValue
+            Write-Verbose "Set $varName"
         }
-        Set-Item -Path 'env:APP_ENV' -Value 'DEV'
     }
 }
 
@@ -241,62 +194,11 @@ function Use-Env {
 # Set-Alias -Name c -Value Clear-Host
 # Set-Alias -Name ls -Value Get-ChildItem
 
-function gdev {
-    git co dev
-    git get
-}
-
-function gmain {
-    git co main
-    git get
-}
-
-function gup {
-    git get
-    git ss
-}
-
-function gsave {
-    git ss
-    git stash
-    git get
-    git ss
-}
-
-# function gdiff-save {
-#     param(
-#         [string]$Against = "origin/dev",
-#         [string]$Name
-#     )
-
-#     if (-not $Name) {
-#         $Name = (Get-Date -Format "yyyyMMdd-HHmmss")
-#     }
-
-#     $path = "D:\temp\diff-$Name.txt"
-#     git diff $Against > $path
-#     Write-Host "Diff saved to $path"
-# }
-
 Set-Alias k kubectl
 Set-Alias kctx kubectx
 
 function kcinfo {
     kubectl cluster-info @args
-}
-
-function gsw {
-    $branch = git branch |
-        fzf |
-        ForEach-Object { $_ -replace '^[* ]+', '' }
-
-    if (-not $branch) { return }
-
-    git switch $branch
-    if ($LASTEXITCODE -eq 0) {
-        $branch | Set-Clipboard
-        Write-Host "Switched to '$branch' (copied to clipboard)."
-    }
 }
 
 function Get-ProcessPort {
@@ -306,6 +208,12 @@ function Get-ProcessPort {
         [ValidateRange(1, 65535)]
         [int]$Port
     )
+
+    $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
+    if (-not $isWindowsCompat) {
+        Write-Warning "Get-ProcessPort requires Windows (uses Get-NetTCPConnection)."
+        return
+    }
 
     Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
         Where-Object OwningProcess -ne 0 |
@@ -328,6 +236,12 @@ function Stop-ProcessPort {
         [ValidateRange(1, 65535)]
         [int]$Port
     )
+
+    $isWindowsCompat = $IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')
+    if (-not $isWindowsCompat) {
+        Write-Warning "Stop-ProcessPort requires Windows (uses Get-NetTCPConnection)."
+        return
+    }
 
     Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
         Where-Object OwningProcess -ne 0 |
