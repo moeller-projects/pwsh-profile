@@ -87,7 +87,8 @@ function Switch-GitBranch {
             Write-Error "fzf not found in PATH. Install fzf to use Git-Go."
             $exitEarly = $true; return
         }
-        if (-not (git rev-parse --is-inside-work-tree 2>$null)) {
+        git rev-parse --is-inside-work-tree *>$null
+        if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] This is not a Git repository!" -ForegroundColor Red
             $exitEarly = $true; return
         }

@@ -136,7 +136,10 @@ if (Test-IsInteractive) {
             }
             Set-PSReadLineOption -AddToHistoryHandler {
                 param($line)
-                $sensitivePatterns = @('(?i)(password|passwd|secret|token|apikey|api_key|connectionstring)\s*[:=]')
+                $sensitivePatterns = @(
+                    '(?i)(password|passwd|secret|token|apikey|api_key|connectionstring)\s*[:=]'
+                    '(?i)(?:^|\s)-(?:access[-_]?token|password|passwd|secret|api[-_]?key|connection[-_]?string)(?:\s+|=)(?:"[^"]*"|''[^'']*''|\S+)'
+                )
                 return -not ($sensitivePatterns | Where-Object { $line -match $_ })
             }
             Set-PSReadLineOption -MaximumHistoryCount 10000
@@ -154,7 +157,8 @@ if (Test-IsInteractive) {
             # Load integrations module once so all stages can use Get-CachedShellInit
             $needsIntegrations = ($Env:PWSH_PROMPT -in @('starship','posh')) -or
                                   ($Env:PWSH_PROFILE_COMPLETIONS -eq '1') -or
-                                  ($Env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1')
+                                  ($Env:PWSH_PROFILE_IMPORT_OPTIONAL -eq '1') -or
+                                  ($Env:PWSH_PROFILE_GIT_WT -eq '1')
             if ($needsIntegrations) {
                 Import-Module -Name PwshProfile.Integrations -Global -ErrorAction Stop
             }
