@@ -18,7 +18,7 @@ function Get-CachedShellInit {
         $cacheDir = Join-Path $env:XDG_CACHE_HOME 'pwsh-profile'
     }
     elseif ($IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6 -and $env:OS -like '*Windows*')) {
-        $cacheDir = Join-Path (if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }) 'pwsh-profile\cache'
+        $cacheDir = Join-Path $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }) 'pwsh-profile\cache'
     }
     else {
         $cacheDir = Join-Path $HOME '.cache/pwsh-profile'
