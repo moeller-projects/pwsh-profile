@@ -103,9 +103,26 @@ if (Test-IsInteractive) {
                     Keyword   = '#8367c7'
                     Error     = '#FF6347'
                 }
-                PredictionSource              = $prediction
-                PredictionViewStyle           = 'ListView'
                 BellStyle                     = 'None'
+            }
+            $psReadLineOptionCommand = Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue
+            if ($psReadLineOptionCommand -and $psReadLineOptionCommand.Parameters.ContainsKey('PredictionSource')) {
+                $predictionParameter = $psReadLineOptionCommand.Parameters['PredictionSource']
+                $predictionAttribute = $predictionParameter.Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+                if (-not $predictionAttribute -or $prediction -in $predictionAttribute.ValidValues) {
+                    $psReadLineOptions['PredictionSource'] = $prediction
+                }
+            }
+            $supportsPredictionView = $false
+            if ($psReadLineOptionCommand -and $psReadLineOptionCommand.Parameters.ContainsKey('PredictionViewStyle')) {
+                $viewStyleParameter = $psReadLineOptionCommand.Parameters['PredictionViewStyle']
+                $viewStyleAttribute = $viewStyleParameter.Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+                if (-not $viewStyleAttribute -or 'ListView' -in $viewStyleAttribute.ValidValues) {
+                    $psReadLineOptions['PredictionViewStyle'] = 'ListView'
+                    $supportsPredictionView = $true
+                }
             }
             Set-PSReadLineOption -PromptText ''
             Set-PSReadLineOption @psReadLineOptions
@@ -123,9 +140,11 @@ if (Test-IsInteractive) {
                 @{ Chord = 'Ctrl+y'; Function = 'Redo' },
                 @{ Key = 'Ctrl+l'; Function = 'ClearScreen' },
                 @{ Chord = 'Enter'; Function = 'ValidateAndAcceptLine' },
-                @{ Chord = 'Ctrl+Enter'; Function = 'AcceptSuggestion' },
-                @{ Chord = 'Alt+v'; Function = 'SwitchPredictionView' }
+                @{ Chord = 'Ctrl+Enter'; Function = 'AcceptSuggestion' }
             )
+            if ($supportsPredictionView) {
+                $keyHandlers += @{ Chord = 'Alt+v'; Function = 'SwitchPredictionView' }
+            }
             foreach ($handler in $keyHandlers) {
                 if ($handler.ContainsKey('Key')) {
                     Set-PSReadLineKeyHandler -Key $handler.Key -Function $handler.Function
