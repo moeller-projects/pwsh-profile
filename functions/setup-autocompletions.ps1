@@ -89,6 +89,11 @@ function Initialize-Completion {
         if ($file) { . $file }
     }
 
+    if (Get-Command -Name fnm -ErrorAction SilentlyContinue) {
+        Write-Verbose "Initializing fnm..."
+        fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+    }
+
     if (Get-Command -Name kiro -ErrorAction SilentlyContinue) {
         Write-Verbose "Initializing kiro completions..."
         $file = Get-CachedShellInit -Tool 'kiro' -Generator { kiro --locate-shell-integration-path pwsh | Out-String }

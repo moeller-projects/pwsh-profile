@@ -1,52 +1,57 @@
-# Repository Guidelines
+# Repository Guide
 
-## Project Structure & Module Organization
-- `profile.ps1`: Entry point loaded by PowerShell. Orchestrates module import and completion setup with fast startup and deferred init.
-- `functions/`: Themed modules (e.g., `git-functions.ps1`, `file-functions.ps1`, `azure-functions.ps1`, `project-functions.ps1`). Add new helpers here using the same `*-functions.ps1` pattern.
-- `PwshProfile.*/`: Thin module wrappers — each `.psm1` dot-sources its `functions/*.ps1` file; each `.psd1` declares exports explicitly. The `PwshProfile.Projects/` module contains project-directory navigation helpers.
-- `setup.ps1`: Creates a symbolic link from this repo's `profile.ps1` to `$PROFILE`. Pass `-NoSymlink` to write a loader file instead (no admin rights required).
-- `test-loading-time.ps1`: Measures profile load performance.
+This repository provides a fast-loading PowerShell profile and importable command modules. Keep startup predictable, preserve the module-autoloading contract, and make platform-specific behavior explicit.
 
-## Build, Test, and Development Commands
-- Setup link (run as admin): `pwsh -ExecutionPolicy Bypass -File ./setup.ps1`
-- Setup without admin: `pwsh -ExecutionPolicy Bypass -File ./setup.ps1 -NoSymlink`
-- Reload profile during development: `. ./profile.ps1`
-- Open a clean shell (no profile): `pwsh -NoProfile`
-- Measure load time: `pwsh -File ./test-loading-time.ps1`
-- Run smoke tests: `pwsh -File ./scripts/Invoke-Smoketests.ps1 -VerboseOutput`
-- Lint (requires PSScriptAnalyzer): `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1`
+## Repository map
 
-## Coding Style & Naming Conventions
-- PowerShell style: 4-space indent; one function per concern; prefer advanced functions with `[CmdletBinding()]`.
-- Naming: Verb-Noun for functions (e.g., `Switch-GitBranch`, `Resolve-SymlinkPath`); PascalCase for functions/parameters; file names `*-functions.ps1` by area.
-- Performance: Keep `profile.ps1` fast; avoid heavy work in the hot path. Defer slow ops (use event/lazy init) and guard external calls with `Get-Command`.
+- `profile.ps1`: Profile entry point. Applies fast settings, resolves the repository path, adds it to `PSModulePath`, and schedules opt-in interactive integrations for idle time.
+- `functions/`: Implementations grouped by area, using `*-functions.ps1` filenames. `setup-autocompletions.ps1` and `import-modules.ps1` contain integration setup.
+- `PwshProfile.<Area>/`: Area modules. Each module script dot-sources its implementation file; each manifest declares public exports. The profile's repository-root module path enables autoloading.
+- `PwshProfile/`: Aggregate module for callers who intentionally want all helper functions in one import.
+- `setup.ps1`: Configures the host profile using a symbolic link or `-NoSymlink` loader.
+- `environment.ps1`: Setup-generated environment configuration; do not put machine-specific settings in tracked files.
+- `scripts/`: Smoke-test harness and standalone scripts.
+- `test-loading-time.ps1`: Startup timing utility.
+- `openspec/`: Proposed behavior changes and their requirements, design, and tasks.
 
-## Static Analysis (PSScriptAnalyzer)
-- Settings file: `PSScriptAnalyzerSettings.psd1` (repo root) excludes interactive-heavy rules and enforces `ShouldProcess` where practical.
-- Run locally:
-  - `pwsh -NoLogo -NoProfile -Command "Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -ReportSummary"`
-- Rule notes: We intentionally relax `PSAvoidUsingWriteHost` for interactive UX; prefer `Write-Verbose` elsewhere.
+## Runtime and module contracts
 
-## Clean Code Standards
-- Single responsibility: short, focused functions (<50 lines) with clear inputs/outputs.
-- Prefer early-return guards over deep nesting; validate parameters via attributes.
-- Pipeline-friendly: output objects, not formatted strings; keep `Write-Host` for UX only.
-- Error handling: use `throw` for unrecoverable errors; surface user issues with `Write-Error`/`-ErrorAction` support; add `-WhatIf`/`-Confirm` when destructive.
-- Naming/semantics: use approved PowerShell verbs; avoid abbreviations; keep side effects explicit.
-- Defaults/logging: quiet by default; use `Write-Verbose` for details and `Write-Debug` for deep tracing; no noisy output in profile startup.
-- Comments/docs: explain "why", not "what"; include `.SYNOPSIS` and examples for public functions.
+- Keep synchronous profile work small. Prompt engines, generated completions, optional modules, and other external integrations must remain deferred or opt-in.
+- Preserve area-level autoloading: add commands to the appropriate function file and update both the module script and manifest exports, including aliases.
+- Keep the aggregate module aligned when changing public helper behavior; it is a separate supported import path.
+- Use `[System.IO.Path]::PathSeparator` for module-search paths and account for Windows PowerShell 5.1 as well as PowerShell 7+.
+- Guard optional executables and platform-specific commands before invoking them. Do not add remote download-and-execute helpers.
+- Avoid `$global:` variables in module scope. Keep user configuration and secrets outside the repository.
 
-## Testing Guidelines
-- Smoke test: dot-source the profile and exercise new commands: `. ./profile.ps1` then run the function(s).
-- Performance test: run `./test-loading-time.ps1` and note before/after timings for changes affecting startup.
-- Optional: Use Pester for unit tests; place under `tests/` with `*.Tests.ps1` names.
+## PowerShell conventions
 
-## Commit & Pull Request Guidelines
-- Conventional Commits are used (see history): `feat:`, `fix:`, `docs:`, `refactor:`, etc.
-- Commits: present tense, concise scope, include context (e.g., affected function/file).
-- PRs: clear description, rationale, sample commands used, and performance notes if relevant (startup deltas). Link related issues.
+- Use four-space indentation, approved `Verb-Noun` function names, and PascalCase parameters.
+- Prefer focused advanced functions with `[CmdletBinding()]`, parameter attributes, clear pipeline-friendly outputs, and early validation.
+- Use `SupportsShouldProcess` and honor `ShouldProcess` for destructive or externally visible actions.
+- Keep default output quiet. Use `Write-Verbose` for diagnostics and reserve `Write-Host` for intentional interactive UX.
+- Include help such as `.SYNOPSIS` and examples for public commands; explain why in comments rather than restating code.
+- Follow `PSScriptAnalyzerSettings.psd1`; `Write-Host` is intentionally permitted for interactive UX.
 
-## Security & Configuration Tips
-- Do not commit secrets or machine-specific paths. Use environment variables or local config outside the repo.
-- `setup.ps1` creates a symlink to `$PROFILE` (may require admin); use `-NoSymlink` for a loader-file fallback.
-- No `$global:` variables in module scope. No remote download-and-execute helpers.
+## Development and verification
+
+Run commands from the repository root:
+
+- Install the profile link: `pwsh -ExecutionPolicy Bypass -File ./setup.ps1`
+- Use a loader instead of a symlink: `pwsh -ExecutionPolicy Bypass -File ./setup.ps1 -NoSymlink`
+- Reload during interactive development: `. ./profile.ps1`
+- Start a clean shell: `pwsh -NoProfile`
+- Run the smoke harness: `pwsh -File ./scripts/Invoke-Smoketests.ps1 -VerboseOutput`
+- Measure profile startup: `pwsh -File ./test-loading-time.ps1`; use `-Iterations 20` for repeated measurements.
+- Run static analysis when PSScriptAnalyzer is available: `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1`
+
+For command changes, exercise the affected command through its area module or profile autoload path. For startup changes, check both startup behavior and timing. The smoke harness skips some external-tool and platform-specific scenarios; report those limits rather than treating skips as coverage.
+
+## OpenSpec workflow
+
+For planned behavior changes, inspect `openspec/specs/` and `openspec/changes/` before editing. Continue an existing relevant change when appropriate; otherwise create a focused kebab-case change directory with coherent proposal, delta spec, design when needed, and tasks. Each delta requirement needs a `MUST` or `SHALL` statement and an observable `WHEN`/`THEN` scenario. Keep task status consistent with work actually completed and validate the active change before completion.
+
+## Changes and review
+
+- Keep changes focused and update affected implementation, exports, documentation, and smoke coverage together.
+- Use Conventional Commit messages, such as `fix: keep profile startup lazy`.
+- Pull requests should state rationale, behavior changes, verification commands and results, plus startup timing notes when relevant.
