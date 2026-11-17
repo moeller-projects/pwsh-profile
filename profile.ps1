@@ -339,3 +339,5 @@ if ($env:PWSH_PROFILE_TIMING -eq '1') {
     } | Out-Null
 }
 
+
+if (Get-Command git-wt -ErrorAction SilentlyContinue) { Invoke-Expression (& git-wt config shell init powershell | Out-String) }

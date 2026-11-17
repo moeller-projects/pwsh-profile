@@ -15,11 +15,13 @@
     Folder names that are never descended into (node_modules etc.).
 
 .PARAMETER Fetch
-    Run `git fetch --all --prune` per repo first, so ahead/behind reflects
-    fresh remote state. Slower, needs network.
+    Run `git fetch --all --prune` per repo first, so ahead/behind and clean
+    worktree eligibility reflect fresh remote state. Slower, needs network.
 
 .PARAMETER PruneWorktrees
-    Run `git worktree prune`. Without it, stale worktrees are only reported.
+    Remove clean linked worktrees whose commits are all present in remote refs, then
+    run `git worktree prune`. The primary worktree is never removed. Without this,
+    stale worktrees are only reported.
 
 .PARAMETER PruneBranches
     Delete local branches whose commits are ALL contained in a remote branch
@@ -42,6 +44,7 @@
     ./Get-GitRepoStatus.ps1 ~/src -Fetch -All
     ./Get-GitRepoStatus.ps1 ~/src -PruneBranches -WhatIf   # preview
     ./Get-GitRepoStatus.ps1 ~/src -PruneBranches -PruneWorktrees
+    ./Get-GitRepoStatus.ps1 ~/src -PruneWorktrees -Fetch -WhatIf
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -127,6 +130,41 @@ function Get-RepoReport {
     # --- stashes
     $stashes = @(& git -C $Path stash list 2>$null).Count
 
+    # --- live linked worktrees (only remove when clean and fully contained in remote refs)
+    $wtLines = @(& git -C $Path worktree list --porcelain 2>$null)
+    $worktreeRecords = [System.Collections.Generic.List[object]]::new()
+    $record = $null
+    foreach ($line in $wtLines) {
+        if ($line -like 'worktree *') {
+            if ($record) { $worktreeRecords.Add($record) }
+            $record = [pscustomobject]@{ Path = $line.Substring(9); Branch = ''; Detached = $false }
+        }
+        elseif ($record -and $line -like 'branch refs/heads/*') {
+            $record.Branch = $line.Substring('branch refs/heads/'.Length)
+        }
+        elseif ($record -and $line -eq 'detached') { $record.Detached = $true }
+    }
+    if ($record) { $worktreeRecords.Add($record) }
+
+    $prunedWorktrees = [System.Collections.Generic.List[string]]::new()
+    $wouldPruneWorktrees = [System.Collections.Generic.List[string]]::new()
+    if ($PruneWorktrees -and $worktreeRecords.Count -gt 1) {
+        # The first listed worktree is the repository's primary worktree; preserve it.
+        foreach ($worktree in @($worktreeRecords | Select-Object -Skip 1)) {
+            if ($worktree.Detached -or -not $worktree.Branch) { continue }
+            $status = @(& git -C $worktree.Path status --porcelain --untracked-files=all 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $status.Count -gt 0) { continue }
+            $unpushedCount = & git -C $worktree.Path rev-list --count "refs/heads/$($worktree.Branch)" --not --remotes 2>$null
+            if ($LASTEXITCODE -ne 0 -or [int]$unpushedCount -ne 0) { continue }
+
+            if ($PSCmdlet.ShouldProcess($worktree.Path, 'git worktree remove')) {
+                & git -C $Path worktree remove -- $worktree.Path 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { $prunedWorktrees.Add($worktree.Path) }
+            }
+            else { $wouldPruneWorktrees.Add($worktree.Path) }
+        }
+    }
+
     # --- stale worktrees (dry run first, real prune only on request)
     $stale = @(& git -C $Path worktree prune --dry-run -v 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
     $wtPruned = $false
@@ -202,9 +240,13 @@ function Get-RepoReport {
         ExtraWorktrees   = $extraWorktrees
         StaleWorktrees   = $stale
         WorktreesPruned  = $wtPruned
+        PrunedWorktrees  = @($prunedWorktrees)
+        WouldPruneWorktrees = @($wouldPruneWorktrees)
         FetchError       = $fetchError
         NeedsAttention   = ($dirty -or $unpushed.Count -gt 0 -or $prunedBranches.Count -gt 0 -or
-                            $wouldPrune.Count -gt 0 -or $stashes -gt 0 -or $stale.Count -gt 0 -or $behind -gt 0 -or [bool]$fetchError)
+                            $wouldPrune.Count -gt 0 -or $prunedWorktrees.Count -gt 0 -or
+                            $wouldPruneWorktrees.Count -gt 0 -or $stashes -gt 0 -or $stale.Count -gt 0 -or
+                            $behind -gt 0 -or [bool]$fetchError)
     }
 }
 
@@ -249,6 +291,8 @@ if ($shown.Count -gt 0) {
         foreach ($b in $r.PrunedBranches)      { Write-Host "  branch      : deleted (fully pushed) - $b" -ForegroundColor Green }
         foreach ($b in $r.WouldPruneBranches)  { Write-Host "  branch      : would delete (fully pushed) - $b" -ForegroundColor DarkGreen }
         if ($r.Stashes -gt 0) { Write-Host "  stashes     : $($r.Stashes)" -ForegroundColor DarkYellow }
+        foreach ($w in $r.PrunedWorktrees) { Write-Host "  worktree    : removed (clean, fully pushed) - $w" -ForegroundColor Green }
+        foreach ($w in $r.WouldPruneWorktrees) { Write-Host "  worktree    : would remove (clean, fully pushed) - $w" -ForegroundColor DarkGreen }
         foreach ($w in $r.StaleWorktrees) {
             $label = if ($r.WorktreesPruned) { 'pruned' } else { 'prunable' }
             Write-Host "  worktree    : $label - $w" -ForegroundColor DarkCyan
@@ -262,6 +306,9 @@ Write-Host ''
 Write-Host ("{0} repos, {1} need attention, {2} clean." -f $results.Count, $attention, ($results.Count - $attention)) -ForegroundColor Green
 if (-not $PruneWorktrees -and ($results | Where-Object { $_.StaleWorktrees.Count })) {
     Write-Host 'Stale worktrees found. Re-run with -PruneWorktrees to remove them.' -ForegroundColor DarkGray
+}
+if (-not $PruneWorktrees -and ($results | Where-Object { $_.ExtraWorktrees -gt 0 })) {
+    Write-Host 'Live worktrees found. Re-run with -PruneWorktrees to remove clean, fully-pushed linked worktrees.' -ForegroundColor DarkGray
 }
 
 if ($PassThru) { $results }
